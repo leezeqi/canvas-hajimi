@@ -21,6 +21,40 @@ function Invoke-Checked {
   }
 }
 
+function Invoke-GitFetch {
+  param([string]$Remote)
+  $useOpenSsl = $false
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    $gitArgs = @('-c', 'http.version=HTTP/1.1', '-c', 'http.sslVerify=true')
+    if ($useOpenSsl) { $gitArgs += @('-c', 'http.sslBackend=openssl') }
+    $gitArgs += @('fetch', '--', $Remote)
+    # PS5.1 turns native stderr into ErrorRecords; inspect Git's exit code explicitly.
+    $savedPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'Continue'
+      $fetchOutput = @(& git @gitArgs 2>&1)
+      $fetchExitCode = $LASTEXITCODE
+    }
+    finally {
+      $ErrorActionPreference = $savedPreference
+    }
+    foreach ($line in $fetchOutput) { Write-Host ([string]$line) }
+    if ($fetchExitCode -eq 0) { return }
+    $diagnostic = ($fetchOutput | ForEach-Object { [string]$_ }) -join "`n"
+    $tlsFailure = $diagnostic -match '(?i)schannel|handshake|SSL/TLS|SSL_connect|TLS connect'
+    $networkFailure = $tlsFailure -or $diagnostic -match '(?i)could not resolve|failed to connect|connection.*(reset|timed out|closed)|recv failure|send failure|operation timed out|unexpected disconnect|error:\s*(429|500|502|503|504)'
+    if (-not $networkFailure -or $attempt -eq 3) {
+      throw "Git fetch failed with exit code $fetchExitCode after $attempt attempt(s). Deployment stopped before upload; check network, proxy, credentials and remote URL."
+    }
+    if ($tlsFailure -and -not $useOpenSsl) {
+      $useOpenSsl = $true
+      Write-Host 'TLS handshake failed; retrying with OpenSSL and HTTP/1.1. Certificate verification remains enabled.'
+    }
+    Write-Host ("Git network check failed; retrying ({0}/3)..." -f ($attempt + 1))
+    Start-Sleep -Seconds (2 * $attempt)
+  }
+}
+
 function Get-RequiredConfigValue {
   param([object]$Config, [string]$Name, [string]$Override)
   if (-not [string]::IsNullOrWhiteSpace($Override)) { return $Override }
@@ -154,7 +188,7 @@ try {
     throw 'Current branch has no valid upstream tracking branch.'
   }
   $upstreamRemote = $Matches[1]
-  Invoke-Checked 'git' @('fetch', $upstreamRemote)
+  Invoke-GitFetch $upstreamRemote
   $upstreamCommit = (& git rev-parse --verify '@{u}').Trim()
   if ($LASTEXITCODE -ne 0 -or $upstreamCommit -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve fetched upstream '$upstream'." }
   if ($commit -ne $upstreamCommit) { throw "Current commit is not pushed to $upstream. Local: $commit; upstream: $upstreamCommit." }
