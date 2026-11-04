@@ -108,9 +108,10 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 		t.Fatal(err)
 	}
 	svc.pluginRuntime = &pluginRuntime{plugins: map[string]pluginRecord{
-		"bundled":  {Source: "bundled", Metadata: protocol.Metadata{ID: "bundled", Name: "系统协议", Version: "1"}},
-		"uploaded": {Source: "uploaded", Metadata: protocol.Metadata{ID: "uploaded", Name: "自定义协议", Version: "1"}},
-		"app":      {Source: "bundled", Metadata: protocol.Metadata{ID: WorkflowPluginRunningHub, Name: "官方应用", Version: "1"}},
+		"bundled":         {Source: "bundled", Metadata: protocol.Metadata{ID: "bundled", Name: "系统协议", Version: "1"}},
+		"uploaded":        {Source: "uploaded", Metadata: protocol.Metadata{ID: "uploaded", Name: "自定义协议", Version: "1"}},
+		"app":             {Source: "bundled", Metadata: protocol.Metadata{ID: WorkflowPluginRunningHub, Name: "官方应用", Version: "1"}},
+		PluginAotianVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginAotianVideo, Name: "傲天 Seedance 视频", Version: "1"}},
 	}}
 
 	visibleToUser, err := svc.PluginsForUser(&model.User{ID: "user-1", Role: model.UserRoleUser})
@@ -120,12 +121,41 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 	if len(visibleToUser) != 1 || visibleToUser[0].Manifest.ID != WorkflowPluginRunningHub {
 		t.Fatalf("PluginsForUser(user) = %#v", visibleToUser)
 	}
+	if _, err := svc.UpdateFeatureAvailability(admin, FeatureAvailability{
+		ShortDramaEnabled: true, TaskCenterEnabled: true, CreditsEnabled: true,
+		CustomChannelsEnabled: true, PluginCenterEnabled: true, SystemPluginsVisibleToUsers: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	visibleToUser, err = svc.PluginsForUser(&model.User{ID: "user-1", Role: model.UserRoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, plugin := range visibleToUser {
+		if plugin.Manifest.ID == PluginAotianVideo {
+			t.Fatal("admin-only plugin was visible to an ordinary user")
+		}
+	}
 	visibleToAdmin, err := svc.PluginsForUser(admin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(visibleToAdmin) != 3 {
+	if len(visibleToAdmin) != 4 {
 		t.Fatalf("PluginsForUser(admin) = %#v", visibleToAdmin)
+	}
+}
+
+func TestRequirePluginForUserRestrictsAotianToAdmins(t *testing.T) {
+	svc, db := newFeatureAvailabilityTestService(t)
+	if err := db.AutoMigrate(&model.User{}); err != nil {
+		t.Fatal(err)
+	}
+	ordinary := &model.User{ID: "user-1", Role: model.UserRoleUser}
+	if err := db.Create(ordinary).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RequirePluginForUser(ordinary.ID, PluginAotianVideo); err == nil {
+		t.Fatal("ordinary user was allowed to use the admin-only plugin")
 	}
 }
 

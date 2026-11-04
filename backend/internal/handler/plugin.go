@@ -90,13 +90,14 @@ func RegisterPluginRoutes(r *gin.RouterGroup, svc *service.Service) {
 		ok(c, gin.H{"plugins": plugins, "states": states})
 	})
 	pluginRoutes.GET("/catalog", func(c *gin.Context) {
-		if _, err := currentUser(c, svc); err != nil {
+		user, err := currentUser(c, svc)
+		if err != nil {
 			failService(c, err)
 			return
 		}
 		scope := strings.TrimSpace(c.DefaultQuery("scope", "user.custom-channel"))
 		capability := strings.TrimSpace(c.Query("capability"))
-		ok(c, gin.H{"providers": svc.PluginProviderCatalog(scope, capability, false)})
+		ok(c, gin.H{"providers": svc.PluginProviderCatalogForUser(user, scope, capability, false)})
 	})
 	pluginRoutes.POST("", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

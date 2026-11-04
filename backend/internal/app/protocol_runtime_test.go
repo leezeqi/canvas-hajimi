@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"yingce/backend/internal/model"
 	"yingce/backend/internal/protocol"
 )
 
@@ -160,6 +161,27 @@ func TestBundledWorkflowPluginsControlAvailability(t *testing.T) {
 	if got := svc.WorkflowPluginStatuses()[WorkflowPluginRunningHub]; got != "disabled" {
 		t.Fatalf("RunningHub status = %q, want disabled", got)
 	}
+}
+
+func TestAotianProviderCatalogIsVisibleOnlyToAdmins(t *testing.T) {
+	center, err := newPluginRuntime(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{pluginRuntime: center}
+	userCatalog := svc.PluginProviderCatalogForUser(&model.User{ID: "user-1", Role: model.UserRoleUser}, string(protocol.SurfaceAdminSystemChannel), string(protocol.CapabilityVideo), true)
+	for _, item := range userCatalog {
+		if item.ID == PluginAotianVideo {
+			t.Fatal("Aotian provider was visible to an ordinary user")
+		}
+	}
+	adminCatalog := svc.PluginProviderCatalogForUser(&model.User{ID: "admin-1", Role: model.UserRoleAdmin}, string(protocol.SurfaceAdminSystemChannel), string(protocol.CapabilityVideo), true)
+	for _, item := range adminCatalog {
+		if item.ID == PluginAotianVideo {
+			return
+		}
+	}
+	t.Fatal("Aotian provider was missing from administrator catalog")
 }
 
 func TestBundledProviderCatalogExposesUpstreamOperation(t *testing.T) {

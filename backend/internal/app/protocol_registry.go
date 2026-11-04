@@ -34,10 +34,21 @@ type PluginProviderCatalogItem struct {
 // PluginProviderCatalog projects provider and workflow contributions from the
 // unified plugin registry for channel and creation settings.
 func (s *Service) PluginProviderCatalog(scope, capability string, includeUnavailable bool) []PluginProviderCatalogItem {
+	return s.pluginProviderCatalogForUser(nil, scope, capability, includeUnavailable)
+}
+
+func (s *Service) PluginProviderCatalogForUser(actor *model.User, scope, capability string, includeUnavailable bool) []PluginProviderCatalogItem {
+	return s.pluginProviderCatalogForUser(actor, scope, capability, includeUnavailable)
+}
+
+func (s *Service) pluginProviderCatalogForUser(actor *model.User, scope, capability string, includeUnavailable bool) []PluginProviderCatalogItem {
 	wantScope := protocol.Surface(strings.TrimSpace(scope))
 	wantCapability := protocol.Capability(strings.TrimSpace(capability))
 	items := make([]PluginProviderCatalogItem, 0)
 	for _, plugin := range s.Plugins() {
+		if isAdminOnlyPlugin(plugin.Manifest.ID) && (actor == nil || actor.Role != model.UserRoleAdmin) {
+			continue
+		}
 		for _, provider := range plugin.Manifest.Contributes.Providers {
 			if !containsPluginSurface(provider.Scopes, wantScope) || (wantCapability != "" && !containsPluginCapability(provider.Capabilities, wantCapability)) {
 				continue
@@ -159,12 +170,12 @@ func (s *Service) PluginsForUser(actor *model.User) ([]PluginView, error) {
 	if err != nil {
 		return nil, err
 	}
-	if visible {
-		return items, nil
-	}
 	filtered := make([]PluginView, 0, len(items))
 	for _, item := range items {
-		if item.Management.ActivationScope == PluginScopeUser {
+		if isAdminOnlyPlugin(item.Manifest.ID) {
+			continue
+		}
+		if visible || item.Management.ActivationScope == PluginScopeUser {
 			filtered = append(filtered, item)
 		}
 	}

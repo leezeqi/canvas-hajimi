@@ -16,6 +16,7 @@ const (
 	PluginMediaConversion     = "media-conversion"
 	PluginEditorShell         = "editor-shell"
 	PluginUserFeedback        = "user-feedback"
+	PluginAotianVideo         = "aotian-video"
 
 	PluginOriginOfficial = "official"
 	PluginOriginSystem   = "system"
@@ -105,6 +106,10 @@ var systemPaymentPolicies = map[string]PluginManagementView{
 	},
 }
 
+func isAdminOnlyPlugin(pluginID string) bool {
+	return strings.TrimSpace(pluginID) == PluginAotianVideo
+}
+
 func pluginManagement(pluginID string, source string) PluginManagementView {
 	if strings.TrimSpace(source) == PluginOriginUploaded {
 		return PluginManagementView{
@@ -186,6 +191,9 @@ func (s *Service) PluginStatesForUser(actor *model.User) (map[string]PluginState
 		state, err := s.pluginStateForUser(actor, pluginID, items)
 		if err != nil {
 			return nil, err
+		}
+		if (actor == nil || actor.Role != model.UserRoleAdmin) && isAdminOnlyPlugin(pluginID) {
+			continue
 		}
 		result[pluginID] = state
 	}
@@ -362,6 +370,18 @@ func isKnownRuntimeOptionalPlugin(pluginID string) bool {
 }
 
 func (s *Service) RequirePluginForUser(userID string, pluginID string) error {
+	if isAdminOnlyPlugin(pluginID) {
+		if s.repo == nil {
+			return fmt.Errorf("用户存储未初始化")
+		}
+		user, err := s.repo.User(strings.TrimSpace(userID))
+		if err != nil {
+			return fmt.Errorf("读取用户权限：%w", err)
+		}
+		if user.Role != model.UserRoleAdmin {
+			return Forbidden("该插件仅管理员可用")
+		}
+	}
 	state, err := s.pluginStateForUser(&model.User{ID: strings.TrimSpace(userID)}, pluginID, s.Plugins())
 	if err != nil {
 		return err
