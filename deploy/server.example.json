@@ -1,0 +1,8 @@
+{
+  "Server": "server.example.com",
+  "RemoteUser": "deploy",
+  "IdentityFile": "C:\\Users\\YOUR_NAME\\.ssh\\id_ed25519",
+  "InstallDir": "/srv/apps/open-ai-canvas",
+  "ProjectName": "open-ai-canvas",
+  "PublicUrl": "https://canvas.example.com"
+}

@@ -1,0 +1,109 @@
+---
+title: Windows 一键源码部署
+---
+
+# Windows 一键源码部署
+
+适用于已经运行标准 PostgreSQL、Redis、独立 Agent 编排的服务器。它把本地已提交并推送的 Git 版本上传到服务器，构建定制镜像，备份后更新现有项目。它不安装新服务器，也不迁移旧 SQLite 部署。
+
+这是用户主动选择的源码部署方案。本地构建镜像不由官方 Host Updater 管理；首次成功切换时会停用该更新器，并关闭后端的更新器连接。以后继续使用本脚本更新。恢复官方受管部署需要重新核对 Release 镜像、编排、数据兼容性和更新器配置。
+
+## 本地准备
+
+需要 Windows PowerShell 5.1 或更高版本、Git、Windows OpenSSH 的 `ssh` 和 `scp`。服务器需要 Python 3.12 或更高版本、Docker Compose V2、tar 和免交互 sudo。首次连接服务器应先独立核对 SSH 主机指纹并加入 known_hosts；脚本使用 `StrictHostKeyChecking=yes`，不自动信任新主机。
+
+根目录的 `一键部署.bat` 调用 `deploy/deploy.ps1`。连接信息保存在 Git 忽略的 `.local/deploy/server.json`，不要把真实连接信息和私钥提交到仓库。配置格式见 `deploy/server.example.json`：
+
+```json
+{
+  "Server": "server.example.com",
+  "RemoteUser": "deploy",
+  "IdentityFile": "C:\\Users\\YOUR_NAME\\.ssh\\id_ed25519",
+  "InstallDir": "/srv/apps/open-ai-canvas",
+  "ProjectName": "open-ai-canvas",
+  "PublicUrl": "https://canvas.example.com"
+}
+```
+
+`InstallDir` 必须对应当前容器的 Compose 项目目录。`ProjectName` 必须是现有项目名；更改它会被现有部署检查阻止。`PublicUrl` 只能填写 HTTPS 站点来源，不能包含路径或密码。可用同名 PowerShell 参数覆盖配置。
+
+脚本沿用部署链路已验证的 SSH 密钥交换及加密算法；其他服务器若不支持，应调整 `deploy/deploy.ps1` 的 SSH 选项。
+
+## 日常操作
+
+先执行只读检查，无需提交本次脚本即可检查当前服务器：
+
+```powershell
+.\一键部署.bat -Action Preflight
+.\一键部署.bat -Action Status
+.\一键部署.bat -Action Logs
+```
+
+- `Preflight` 核对项目归属、六服务编排、运行状态、数据挂载、现有 override 和磁盘余量，不停止服务，不写入远程文件。
+- `Status` 显示项目内所有容器，包括退出的迁移容器。
+- `Logs` 输出后端最近 100 行日志，故障排查时注意日志可能包含业务信息。
+
+准备上线时，先按照仓库推送前约定完成验证、提交和推送，再双击根目录入口，或执行：
+
+```powershell
+.\一键部署.bat
+```
+
+脚本要求工作区干净（包括未跟踪文件）、部署脚本已包含在当前提交内，并在 `git fetch` 后确认 HEAD 与远程跟踪分支一致。不会替你提交、推送、合并或清理工作区。归档只包含该提交中的文件，不包含本地配置和密钥；文件上传后逐个核对 SHA-256。源码包与远端执行脚本使用唯一的临时文件名。
+
+## 更新顺序和保留内容
+
+1. 从现有 Web 容器标签读取当前 Compose 文件列表和热修复 override，检查其他服务使用的编排没有冲突。
+2. 上传代码并构建带完整提交号标签的后端、Web 和独立 Agent 镜像；构建期间旧应用继续运行。
+3. 再次核对线上状态，记录当前配置、实际镜像 ID、环境文件、数据挂载和更新器状态。
+4. 新增末位 `compose.source.json` override，替换三类应用镜像及迁移镜像；保留原编排、域名、网络、端口和数据卷。检查候选编排没有修改运行服务的挂载、端口或网络。
+5. 停用官方更新器，等待应用任务退出，停止 Web、后端、Agent 和 Redis。停机时间包括任务排空、备份、迁移和启动；应在低峰执行。
+6. 保持 PostgreSQL 运行，生成自定义格式数据库备份并用 `pg_restore --list` 校验；归档后端数据（包含上传文件和 `.settings-key`）、Web 数据和 Redis 数据，记录 SHA-256。
+7. 启动 Redis，使用新后端镜像执行迁移，依次启动 Agent、后端和 Web，检查健康状态、后端 readiness 和公网 HTTPS readiness。
+
+不会执行 `docker compose down -v`、清理其他项目、替换 Caddy 配置或删除历史镜像。已退出的旧迁移容器不代表新迁移失败：每次更新通过新镜像的独立 `run --rm migrate` 执行迁移。
+
+服务器安装目录下保存以下资料：
+
+```text
+deployment/source-releases/<UTC时间>-<提交号前缀>/
+├── source/                    本次提交源码
+├── compose.source.json        本次镜像覆盖配置
+├── previous.compose.json      按实际旧镜像 ID 固定的恢复编排
+├── previous.env               原环境配置（敏感，权限 600）
+├── previous-config/           原 Compose 文件副本
+├── mounts-before.json         原数据挂载
+├── updater-before.json        原更新器状态
+├── database.dump              迁移前数据库
+├── backend-data.tar.gz        后端文件
+├── web-data.tar.gz            前端文件
+├── redis-data.tar.gz          Redis 持久化文件
+├── backup-sha256.json         备份校验值
+├── state.json                 部署阶段与镜像信息
+└── remote-deploy.py            与该次备份配套的恢复工具
+```
+
+这些目录包含凭据和用户数据，只允许 root 访问，不得提交或放在 Web 可访问目录下。工具不自动删除历史备份和镜像；应根据恢复窗口单独安排保留策略。当前部署记录写入安装目录下的 `source-deploy-current.json`。
+
+## 失败和回退
+
+构建失败时旧应用继续运行。停机或备份阶段失败且迁移尚未开始时，工具尝试重新启动旧应用并恢复更新器原状态。迁移一旦开始，后续失败会停止应用并保留恢复资料，不会直接让旧程序连接可能已迁移的数据库，也不会自动覆盖数据库。
+
+需要还原时，在服务器运行部署时输出的完整恢复命令。以下使用占位路径，必须替换为实际安装目录、项目名、站点及完整发布目录：
+
+```bash
+sudo python3 /INSTALL/deployment/source-releases/RELEASE/remote-deploy.py rollback \
+  --release-dir /INSTALL/deployment/source-releases/RELEASE \
+  --confirm-restore RESTORE-PREDEPLOY-DATA \
+  --install-dir /INSTALL \
+  --project-name open-ai-canvas \
+  --public-url https://canvas.example.com
+```
+
+**该命令会把线上业务数据恢复到所选备份时间点**。恢复前先确认时间点。工具先验证备份完整性、镜像及当前挂载，并把文件归档完整解包到同文件系统的独立暂存目录，然后才停止应用。当前文件移入保留目录，当前数据库另行导出，恢复计划记录在发布目录的 `rollback-*` 子目录中；不会直接删除原文件。恢复旧数据后使用固定旧镜像启动应用，并恢复原更新器状态。恢复失败时保持应用和更新器停止，保留新旧数据副本用于排查。
+
+## 验收范围
+
+容器健康和公网检查不能替代业务验收。部署后应验证管理员与普通用户登录、项目和画布、资源访问、文本 SSE、图片/视频任务及本次变更的权限规则。公网 readiness 失败但本机容器健康时会明确警告，不能据此宣称公网验证通过。
+
+首次上线前还必须核对当前源码是否包含服务器既有热修复；工具保留旧配置和备份，但不能自动判断两份业务代码语义是否一致。查看 `progress/pending-test.mdx` 中的待验收项。
