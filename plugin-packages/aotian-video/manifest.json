@@ -1,0 +1,362 @@
+{
+  "apiVersion": "yingce.plugin/v2",
+  "id": "aotian-video",
+  "name": "傲天 Seedance 视频",
+  "version": "1.0.0",
+  "author": "影策",
+  "description": "傲天 AoTian 视频协议：JSON 提交公网 HTTPS 参考素材链接，查询原任务并直接下载结果链接。",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "API Key",
+        "required": true
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "id": "aotian-video",
+        "label": "傲天 Seedance 视频",
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "baseUrl": "https://aotianzz.xyz",
+        "requiresPublicMediaUrls": true,
+        "detachedPolling": true,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "上游 /v1/models 返回的视频模型 ID。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频描述，不能为空。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images",
+            "description": "参考图按顺序传公网 HTTPS URL 数组，首帧在尾帧之前；不发送 data URL 或 multipart 文件。"
+          },
+          {
+            "name": "videos",
+            "type": "media[]",
+            "required": false,
+            "mapping": "reference_videos",
+            "description": "参考视频公网 HTTPS URL 数组，仅在上游模型支持时生效。"
+          },
+          {
+            "name": "audios",
+            "type": "media[]",
+            "required": false,
+            "mapping": "reference_audios",
+            "description": "参考音频公网 HTTPS URL 数组，仅在上游模型支持时生效。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "seconds",
+            "description": "时长秒数，以字符串发送；按秒计费模型必须提供。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "size",
+            "description": "画幅比例原样发送，例如 16:9；不换算像素，也不使用 aspect_ratio 或 ratio。"
+          },
+          {
+            "name": "resolution",
+            "type": "string",
+            "required": false,
+            "mapping": "resolution",
+            "description": "清晰度档位，例如 720p。"
+          }
+        ],
+        "validations": [
+          {
+            "assert": {
+              "$gt": [
+                {
+                  "$len": {
+                    "$trim": {
+                      "$ref": "request.prompt"
+                    }
+                  }
+                },
+                0
+              ]
+            },
+            "message": "视频描述不能为空"
+          },
+          {
+            "assert": {
+              "$eq": [
+                {
+                  "$len": {
+                    "$filter": {
+                      "from": {
+                        "$concatArrays": [
+                          {
+                            "$ref": "request.images"
+                          },
+                          {
+                            "$ref": "request.videos"
+                          },
+                          {
+                            "$ref": "request.audios"
+                          }
+                        ]
+                      },
+                      "as": "media",
+                      "where": {
+                        "$ne": [
+                          {
+                            "$lower": {
+                              "$at": [
+                                {
+                                  "$split": [
+                                    {
+                                      "$ref": "media.value"
+                                    },
+                                    "://"
+                                  ]
+                                },
+                                0
+                              ]
+                            }
+                          },
+                          "https"
+                        ]
+                      }
+                    }
+                  }
+                },
+                0
+              ]
+            },
+            "message": "傲天视频要求参考素材使用公网 HTTPS 链接，请检查素材公网访问地址后重试"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos",
+          "contentType": "application/json",
+          "body": {
+            "model": {
+              "$ref": "request.model"
+            },
+            "prompt": {
+              "$ref": "request.prompt"
+            },
+            "seconds": {
+              "$if": {
+                "condition": {
+                  "$gt": [
+                    {
+                      "$ref": "request.duration"
+                    },
+                    0
+                  ]
+                },
+                "then": {
+                  "$toString": {
+                    "$ref": "request.duration"
+                  }
+                },
+                "else": null
+              }
+            },
+            "size": {
+              "$omitEmpty": {
+                "$ref": "request.aspectRatio"
+              }
+            },
+            "resolution": {
+              "$omitEmpty": {
+                "$ref": "request.resolution"
+              }
+            },
+            "images": {
+              "$omitEmpty": {
+                "$map": {
+                  "from": {
+                    "$sortByOrder": {
+                      "$ref": "request.images"
+                    }
+                  },
+                  "as": "media",
+                  "in": {
+                    "$ref": "media.value"
+                  }
+                }
+              }
+            },
+            "reference_videos": {
+              "$omitEmpty": {
+                "$map": {
+                  "from": {
+                    "$sortByOrder": {
+                      "$ref": "request.videos"
+                    }
+                  },
+                  "as": "media",
+                  "in": {
+                    "$ref": "media.value"
+                  }
+                }
+              }
+            },
+            "reference_audios": {
+              "$omitEmpty": {
+                "$map": {
+                  "from": {
+                    "$sortByOrder": {
+                      "$ref": "request.audios"
+                    }
+                  },
+                  "as": "media",
+                  "in": {
+                    "$ref": "media.value"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/videos/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.status"
+              },
+              "pending"
+            ]
+          },
+          "stage": {
+            "$switch": {
+              "cases": [
+                {
+                  "when": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "in_progress"
+                    ]
+                  },
+                  "then": "上游生成中"
+                },
+                {
+                  "when": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "processing"
+                    ]
+                  },
+                  "then": "上游归档中"
+                }
+              ],
+              "default": "上游排队中"
+            }
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              }
+            ]
+          },
+          "videos": {
+            "$if": {
+              "condition": {
+                "$eq": [
+                  {
+                    "$ref": "response.status"
+                  },
+                  "completed"
+                ]
+              },
+              "then": {
+                "$coalesce": [
+                  {
+                    "$ref": "response.url"
+                  },
+                  {
+                    "$ref": "response.video_url"
+                  },
+                  {
+                    "$ref": "response.result_url"
+                  },
+                  {
+                    "$ref": "response.metadata.url"
+                  }
+                ]
+              },
+              "else": null
+            }
+          },
+          "errorPaths": [
+            "error.code"
+          ],
+          "resultEphemeral": true
+        }
+      }
+    ]
+  },
+  "documentation": "# 傲天 Seedance 视频\n\n该目录是独立官方协议插件源码。后端从生成的 `aotian-video.yingce-plugin` 包加载，不依赖系统内置 `host:` 适配器。\n\n傲天 AoTian 网关（以及按原样转发其 JSON 的 NewAPI 中转）要求参考素材以公网 HTTPS URL 提交。部分渠道（例如特价 Seedance 线路）拒绝 multipart 文件上传，因此本插件只发送 JSON，参考图放入 `images` 数组，不再使用 `newapi`（OpenAI Videos）协议的 `input_reference` 文件。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n\n---\n\n# 傲天 Seedance 视频接口字段\n\n## 协议身份\n\n- 插件 ID：`aotian-video`。\n- Provider ID：`aotian-video`。\n- 能力：`video`。\n- 默认 Base URL：`https://aotianzz.xyz`；经 NewAPI 中转时把渠道地址改为中转站根地址。\n- 鉴权驱动：`bearer`。\n- 创建：`POST /v1/videos`，`application/json`。\n- 查询：`GET /v1/videos/{{taskId}}`。\n- 不调用 `/v1/videos/{id}/content`；完成响应里的 `url` 可匿名下载。\n\n## 配置字段\n\n| 字段 | 类型 | 必填 | 含义 |\n| --- | --- | --- | --- |\n| `apiKey` | secret | 是 | API Key，以 `Authorization: Bearer` 发送 |\n\n## 统一字段映射\n\n| 统一字段 | 类型 | 必填 | 上游映射 | 说明 |\n| --- | --- | --- | --- | --- |\n| `model` | string | 是 | `model` | 上游 `/v1/models` 返回的视频模型 ID。 |\n| `prompt` | string | 是 | `prompt` | 视频描述，不能为空。 |\n| `images` | media[] | 否 | `images` | 参考图按顺序传公网 HTTPS URL 数组，首帧在尾帧之前。 |\n| `videos` | media[] | 否 | `reference_videos` | 参考视频公网 HTTPS URL 数组，仅在上游模型支持时生效。 |\n| `audios` | media[] | 否 | `reference_audios` | 参考音频公网 HTTPS URL 数组，仅在上游模型支持时生效。 |\n| `duration` | integer | 否 | `seconds` | 大于 0 时以字符串发送；按秒计费模型必须提供。 |\n| `aspectRatio` | string | 否 | `size` | 画幅比例原样发送，例如 `16:9`；不换算像素。 |\n| `resolution` | string | 否 | `resolution` | 清晰度档位，例如 `720p`。 |\n\n上游文档未声明生成音频、水印和首尾帧专用字段，本插件不发送这些字段。模型卡上的“生成音频”开关不会改变上游请求，应按实际上游能力关闭。\n\n## 参考素材\n\n- 插件声明 `requiresPublicMediaUrls: true`：宿主把画布资源换成带签名和有效期的公网 HTTPS 下载地址，内嵌 `data:` 素材直接拒绝，不会退回 base64 或 multipart。\n- 校验步骤检查 `images`、`videos`、`audios` 中每个地址的协议，非 HTTPS 地址在提交前失败。\n- 上游在排队和生成期间回源下载素材，签名地址有效期由后台“资源与请求策略”的模型输入链接有效期决定，应覆盖上游的排队与生成时长。\n- 上游文档未给出参考素材数量上限，按账号权限和模型能力决定；模型卡上的数量限制只在影策侧生效。\n\n## 上游请求模板逐字段清单\n\n| 上游位置 | 值或转换表达式 |\n| --- | --- |\n| `create.method` | `\"POST\"` |\n| `create.path` | `\"/v1/videos\"` |\n| `create.contentType` | `\"application/json\"` |\n| `create.body.model` | `request.model` |\n| `create.body.prompt` | `request.prompt` |\n| `create.body.seconds` | `request.duration > 0` 时为字符串化的 `request.duration`，否则省略 |\n| `create.body.size` | `request.aspectRatio`，为空时省略 |\n| `create.body.resolution` | `request.resolution`，为空时省略 |\n| `create.body.images` | 按 `order` 排序后的 `request.images[].value`，为空时省略 |\n| `create.body.reference_videos` | 按 `order` 排序后的 `request.videos[].value`，为空时省略 |\n| `create.body.reference_audios` | 按 `order` 排序后的 `request.audios[].value`，为空时省略 |\n| `poll.method` | `\"GET\"` |\n| `poll.path` | `\"/v1/videos/{{taskId}}\"` |\n\n## 轮询\n\n插件声明 `detachedPolling: true`：提交后释放 worker，由任务调度按间隔回查同一个上游任务号，不因等待超时重新提交。上游典型生成时间为 10–25 分钟，`processing` 表示归档中，需要继续查询。\n\n## 响应映射逐字段清单\n\n| 映射位置 | 上游路径或转换表达式 |\n| --- | --- |\n| `response.taskId` | `response.id`，依次回退 `response.task_id`、`response.data.id`、已知任务号 |\n| `response.status` | `response.status`，缺失时为 `pending`；`queued` 视为排队，`in_progress` / `processing` 视为处理中，`completed` 视为成功，`failed` 视为失败 |\n| `response.stage` | `in_progress` 为“上游生成中”，`processing` 为“上游归档中”，其余为“上游排队中” |\n| `response.message` | `response.error.message`，依次回退 `response.fail_reason`、`response.message` |\n| `response.videos` | 仅在 `status = completed` 时取 `response.url`，依次回退 `response.video_url`、`response.result_url`、`response.metadata.url` |\n| `response.errorPaths[0]` | `\"error.code\"` |\n| `response.resultEphemeral` | `true` |\n\n## 响应与错误\n\n插件把上游任务号、状态、阶段、失败原因和视频地址映射为统一结果。结果地址标记为临时地址，由宿主立即下载持久化。HTTP 400 表示参数或任务不可用，不能重复提交；失败任务的 `error.message` 作为失败原因返回，不包装成成功。\n\n## 兼容边界\n\n- 只覆盖傲天文档声明的 JSON 字段；上游对未知字段静默忽略，因此不额外透传扩展对象。\n- 画幅只发 `size`，不发 `aspect_ratio` 或 `ratio`。\n- 经 NewAPI 中转时，中转插件必须原样转发 JSON 请求体，并在查询响应中保留上游的 `status`、`url` 和 `error`。\n\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整接口定义\n\n以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。\n\n```json\n{\n  \"apiVersion\": \"yingce.plugin/v2\",\n  \"id\": \"aotian-video\",\n  \"name\": \"傲天 Seedance 视频\",\n  \"version\": \"1.0.0\",\n  \"author\": \"影策\",\n  \"description\": \"傲天 AoTian 视频协议：JSON 提交公网 HTTPS 参考素材链接，查询原任务并直接下载结果链接。\",\n  \"permissions\": [\n    \"generation.run\",\n    \"media.read\"\n  ],\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"apiKey\",\n        \"type\": \"secret\",\n        \"label\": \"API Key\",\n        \"required\": true\n      }\n    ]\n  },\n  \"contributes\": {\n    \"providers\": [\n      {\n        \"id\": \"aotian-video\",\n        \"label\": \"傲天 Seedance 视频\",\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"baseUrl\": \"https://aotianzz.xyz\",\n        \"requiresPublicMediaUrls\": true,\n        \"detachedPolling\": true,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"上游 /v1/models 返回的视频模型 ID。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频描述，不能为空。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images\",\n            \"description\": \"参考图按顺序传公网 HTTPS URL 数组，首帧在尾帧之前；不发送 data URL 或 multipart 文件。\"\n          },\n          {\n            \"name\": \"videos\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"reference_videos\",\n            \"description\": \"参考视频公网 HTTPS URL 数组，仅在上游模型支持时生效。\"\n          },\n          {\n            \"name\": \"audios\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"reference_audios\",\n            \"description\": \"参考音频公网 HTTPS URL 数组，仅在上游模型支持时生效。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"seconds\",\n            \"description\": \"时长秒数，以字符串发送；按秒计费模型必须提供。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"size\",\n            \"description\": \"画幅比例原样发送，例如 16:9；不换算像素，也不使用 aspect_ratio 或 ratio。\"\n          },\n          {\n            \"name\": \"resolution\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"resolution\",\n            \"description\": \"清晰度档位，例如 720p。\"\n          }\n        ],\n        \"validations\": [\n          {\n            \"assert\": {\n              \"$gt\": [\n                {\n                  \"$len\": {\n                    \"$trim\": {\n                      \"$ref\": \"request.prompt\"\n                    }\n                  }\n                },\n                0\n              ]\n            },\n            \"message\": \"视频描述不能为空\"\n          },\n          {\n            \"assert\": {\n              \"$eq\": [\n                {\n                  \"$len\": {\n                    \"$filter\": {\n                      \"from\": {\n                        \"$concatArrays\": [\n                          {\n                            \"$ref\": \"request.images\"\n                          },\n                          {\n                            \"$ref\": \"request.videos\"\n                          },\n                          {\n                            \"$ref\": \"request.audios\"\n                          }\n                        ]\n                      },\n                      \"as\": \"media\",\n                      \"where\": {\n                        \"$ne\": [\n                          {\n                            \"$lower\": {\n                              \"$at\": [\n                                {\n                                  \"$split\": [\n                                    {\n                                      \"$ref\": \"media.value\"\n                                    },\n                                    \"://\"\n                                  ]\n                                },\n                                0\n                              ]\n                            }\n                          },\n                          \"https\"\n                        ]\n                      }\n                    }\n                  }\n                },\n                0\n              ]\n            },\n            \"message\": \"傲天视频要求参考素材使用公网 HTTPS 链接，请检查素材公网访问地址后重试\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"model\": {\n              \"$ref\": \"request.model\"\n            },\n            \"prompt\": {\n              \"$ref\": \"request.prompt\"\n            },\n            \"seconds\": {\n              \"$if\": {\n                \"condition\": {\n                  \"$gt\": [\n                    {\n                      \"$ref\": \"request.duration\"\n                    },\n                    0\n                  ]\n                },\n                \"then\": {\n                  \"$toString\": {\n                    \"$ref\": \"request.duration\"\n                  }\n                },\n                \"else\": null\n              }\n            },\n            \"size\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.aspectRatio\"\n              }\n            },\n            \"resolution\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.resolution\"\n              }\n            },\n            \"images\": {\n              \"$omitEmpty\": {\n                \"$map\": {\n                  \"from\": {\n                    \"$sortByOrder\": {\n                      \"$ref\": \"request.images\"\n                    }\n                  },\n                  \"as\": \"media\",\n                  \"in\": {\n                    \"$ref\": \"media.value\"\n                  }\n                }\n              }\n            },\n            \"reference_videos\": {\n              \"$omitEmpty\": {\n                \"$map\": {\n                  \"from\": {\n                    \"$sortByOrder\": {\n                      \"$ref\": \"request.videos\"\n                    }\n                  },\n                  \"as\": \"media\",\n                  \"in\": {\n                    \"$ref\": \"media.value\"\n                  }\n                }\n              }\n            },\n            \"reference_audios\": {\n              \"$omitEmpty\": {\n                \"$map\": {\n                  \"from\": {\n                    \"$sortByOrder\": {\n                      \"$ref\": \"request.audios\"\n                    }\n                  },\n                  \"as\": \"media\",\n                  \"in\": {\n                    \"$ref\": \"media.value\"\n                  }\n                }\n              }\n            }\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/videos/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"stage\": {\n            \"$switch\": {\n              \"cases\": [\n                {\n                  \"when\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"in_progress\"\n                    ]\n                  },\n                  \"then\": \"上游生成中\"\n                },\n                {\n                  \"when\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"processing\"\n                    ]\n                  },\n                  \"then\": \"上游归档中\"\n                }\n              ],\n              \"default\": \"上游排队中\"\n            }\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$if\": {\n              \"condition\": {\n                \"$eq\": [\n                  {\n                    \"$ref\": \"response.status\"\n                  },\n                  \"completed\"\n                ]\n              },\n              \"then\": {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"response.url\"\n                  },\n                  {\n                    \"$ref\": \"response.video_url\"\n                  },\n                  {\n                    \"$ref\": \"response.result_url\"\n                  },\n                  {\n                    \"$ref\": \"response.metadata.url\"\n                  }\n                ]\n              },\n              \"else\": null\n            }\n          },\n          \"errorPaths\": [\n            \"error.code\"\n          ],\n          \"resultEphemeral\": true\n        }\n      }\n    ]\n  },\n  \"documentation\": \"<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>\"\n}\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n"
+}

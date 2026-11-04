@@ -17,6 +17,8 @@ description: 信封、错误码与 OpenAPI
 
 聚创引擎视频使用独立 `juchuang-video` 插件：`POST /v1/files` 上传素材并取得 HTTPS URL，`POST /v1/media/generate` 提交 `model/prompt/params/client_request_id`，`GET /v1/tasks/{task_id}` 查询。只在 `is_final=true` 后结束任务；已有上游任务号时只查询，不重复上传或提交。素材上传缺少 URL 时停止生成请求。模型 ID、时长、模式和价格按聚创模型卡独立配置，不替换其他渠道。
 
+傲天 AoTian 视频（含经 NewAPI 原样转发的中转渠道）使用独立 `aotian-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/size/resolution`，参考图为公网 HTTPS URL 数组 `images`，参考视频、音频为 `reference_videos`、`reference_audios`；`GET /v1/videos/{id}` 查询，完成后直接下载响应中的 `url`。插件要求公网素材地址，画布资源以签名链接提供，内嵌数据或非 HTTPS 地址在提交前失败；上游拒绝 multipart 文件的特价线路不能继续使用 `newapi`（OpenAI Videos）协议。
+
 `POST /api/workbench/tasks` 的视频任务根据已校验的 `references` 推导操作类型，客户端不需要提交泛化的 `video` 操作：
 
 | 输入 | 操作 |

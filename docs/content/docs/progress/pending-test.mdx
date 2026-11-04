@@ -5,6 +5,15 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 傲天 Seedance 视频协议
+
+- 已实现：独立 `aotian-video` 声明式插件，`POST /v1/videos` 只发 JSON：参考图按顺序放入 `images`（公网 HTTPS URL 数组），参考视频 / 音频分别为 `reference_videos` / `reference_audios`，画幅用 `size`，时长以字符串 `seconds` 发送，并附 `resolution`；不再上传 multipart `input_reference` 文件。
+- 已实现：声明 `requiresPublicMediaUrls`，画布资源换成签名公网链接，内嵌数据和非 HTTPS 地址在提交前失败；声明分离式查询，`GET /v1/videos/{id}` 回查原任务，完成后直接下载 `url`，不调用 `/content`。
+- 已验证：协议测试覆盖请求体、素材排序、非 HTTPS 拦截和状态映射；运行时测试覆盖 JSON 提交、续查不重复提交和内嵌素材拦截。
+- 已部署：线上后端以热修复镜像追加 `aotian-video` 协议包；哈基米视频渠道 18 个 Seedance 模型经渠道导入切换为 `aotian-video`，能力配置、价格与启用状态保持不变。后台编辑器切换协议会重置能力配置，批量换协议应使用导出、修改协议、导入的方式。
+- [x] 用户验收：用一张参考图生成特价 seedance-2.0-720p，JSON 提交取得上游任务号，约 21 分钟后成功下载成片，不再报 “requires public HTTPS reference URLs”。
+- [ ] 用户验收：确认参考视频、参考音频和生成音频在上游的实际支持情况，按结果调整模型卡的参考素材上限与生成音频开关。
+
 ## 聚创引擎视频协议与失败原因
 
 - 已实现：独立 `juchuang-video` 声明式插件，参考素材先上传到聚创文件接口，使用返回的 HTTPS URL 创建视频任务；幂等提交与分离式查询复用现有引擎。
