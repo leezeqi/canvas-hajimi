@@ -61,7 +61,7 @@ func uploadProtocolMedia(ctx context.Context, input canvasGenerationInput, adapt
 					return fmt.Errorf("上传参考素材失败：%w", err)
 				}
 				if id, err = uploader.ParseUpload(ctx, body); err != nil {
-					return err
+					return WrapAppError(http.StatusBadGateway, "参考素材上传未返回可用的素材标识或链接，请检查上游文件权限后重试", err)
 				}
 				uploaded[key] = id
 			}

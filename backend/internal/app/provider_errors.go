@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -200,7 +201,11 @@ func providerUserFacingErrorMessage(err error) string {
 	if errors.As(err, &httpErr) {
 		return httpErr.Error()
 	}
-	return "连接模型服务失败，请检查渠道地址和网络"
+	var networkErr net.Error
+	if errors.As(err, &networkErr) {
+		return "连接模型服务失败，请检查渠道地址和网络"
+	}
+	return "模型响应处理失败，请检查返回格式和协议配置"
 }
 
 // providerPayloadErrorCategory 把上游失败正文归类为固定的用户可见原因。
@@ -213,6 +218,14 @@ func providerPayloadErrorCategory(raw string) (string, bool) {
 		return "", false
 	}
 	switch {
+	case strings.Contains(normalized, "requires public https reference urls"):
+		return "当前视频渠道要求参考素材使用公网 HTTPS 链接，请联系管理员调整素材上传方式和请求协议", true
+	case strings.Contains(normalized, "file_too_large"):
+		return "参考素材超过上游上传大小限制，请压缩素材后重试", true
+	case strings.Contains(normalized, "reference_video_duration_pending"):
+		return "缺少参考视频时长，请重新选择素材后重试", true
+	case strings.Contains(normalized, "invalid_model") || strings.Contains(normalized, "model_not_found"):
+		return "当前上游模型不存在或不可用，请联系管理员检查模型标识", true
 	// 真人肖像类目只匹配供应商错误码里的稳定标识，不扫描自然语言。
 	// 正文常常回显用户提示词，"likeness"、"肖像"这类词单独出现并不能证明
 	// 上游是因为真人形象拒绝，按词判断会把普通参数错误误报成肖像问题。

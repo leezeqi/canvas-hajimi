@@ -265,6 +265,7 @@ func (r *Repository) DeleteChannelModels(channelID string, ids []string, now tim
 		var activeReferences int64
 		if err := tx.Table("logical_model_routes AS route").
 			Joins("JOIN logical_models AS logical_model ON logical_model.active_revision_id = route.logical_model_revision_id").
+			Where("logical_model.archived_at IS NULL").
 			Where("route.channel_model_id IN ?", ids).
 			Count(&activeReferences).Error; err != nil {
 			return err

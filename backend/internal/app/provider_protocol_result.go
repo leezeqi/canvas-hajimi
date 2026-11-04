@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -33,6 +34,9 @@ func appendProtocolQuery(rawURL string, values map[string][]string) (string, err
 }
 
 func finishProtocolResult(ctx context.Context, config providerConfig, mode string, taskID string, result *protocol.Result, pollPolicy videoPollPolicy) (map[string]interface{}, error) {
+	if mode == "text" && (result == nil || strings.TrimSpace(result.Text) == "") {
+		return nil, NewAppError(http.StatusBadGateway, "模型服务已响应，但未返回可用正文，请检查响应格式和协议配置")
+	}
 	if result == nil {
 		return nil, errors.New("声明式协议已完成但没有返回结果")
 	}

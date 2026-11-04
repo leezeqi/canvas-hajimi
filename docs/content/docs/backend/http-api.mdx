@@ -13,6 +13,10 @@ description: 信封、错误码与 OpenAPI
 
 ## 视频工作台的生成模式
 
+任务列表（含 `GET /api/workbench/tasks`）返回经过用户可见错误过滤的 `error` 字段；失败卡片展示该原因，完整上游正文仍只在管理员诊断中。历史任务不重写，已保存的原因在读取时过滤。
+
+聚创引擎视频使用独立 `juchuang-video` 插件：`POST /v1/files` 上传素材并取得 HTTPS URL，`POST /v1/media/generate` 提交 `model/prompt/params/client_request_id`，`GET /v1/tasks/{task_id}` 查询。只在 `is_final=true` 后结束任务；已有上游任务号时只查询，不重复上传或提交。素材上传缺少 URL 时停止生成请求。模型 ID、时长、模式和价格按聚创模型卡独立配置，不替换其他渠道。
+
 `POST /api/workbench/tasks` 的视频任务根据已校验的 `references` 推导操作类型，客户端不需要提交泛化的 `video` 操作：
 
 | 输入 | 操作 |
@@ -420,6 +424,10 @@ Token 报价的 `estimated` 为 `true`，`quantity` 是预留 Token 数。参考
 | `GET /admin/channel-models` | 返回全部系统渠道（含停用渠道）的模型，结构同 `GET /admin/channels/:id/models` 的单项，另加 `channelName`、`channelEnabled`，供按模型名称跨渠道筛选。 |
 | `GET /admin/channel-models/health?channelId=` | 返回模型调用稳定性 `{ items, computedAt, truncated }`。每项含 `channelId`、`modelKey`、近 24 小时 `requests24h` / `succeeded24h` / `failed24h` / `successRate24h`、近 7 天 `requests7d` / `successRate7d`、`p95DurationMs24h`、最近 10 次结果 `recentResults`（左旧右新）、`lastErrorCode`、`lastFailedAt`、`lastCalledAt`。成功率为 0–1 小数，没有样本时为 `null`。只统计 `request_kind = create`，不设用户端的最少样本门槛；读取近 7 天最新 50,000 条记录，超出时 `truncated = true`。结果缓存 30 秒；不传 `channelId` 时返回全部系统渠道。 |
 | `PATCH /admin/channels/:id/models/:modelId/enabled` | 请求体 `{ "enabled": boolean }`，只改启停，不重写价格档、能力配置和价格版本；能力或协议未配置的模型不能启用。写管理员审计 `channel_model.enable` / `channel_model.disable`。 |
+
+渠道模型删除按整批检查引用：未归档前台模型当前版本的供应线路（包括停用前台模型），以及排队、运行中任务，均阻止删除；已归档前台模型的历史线路不再阻止删除。删除继续采用软删除，保留归档主体、历史版本、供应线路和历史任务，不清空历史关联。
+
+模型测试中的 HTTP 200 只代表上游传输成功，正文仍须通过协议解析。Responses 同步响应支持顶层 `output_text` 和 `output[].content[].text`；空正文返回响应格式错误，实际网络错误保留连接失败提示，不向用户透出原始响应或凭据。
 
 `GET /admin/analytics/export.csv` 沿用相同口径，CSV 输出收入、成本、利润（整数微积分）；重复请求只在该筛选范围内选定的一行记录金额，未知值留空。
 

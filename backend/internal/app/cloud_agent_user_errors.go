@@ -206,6 +206,9 @@ func taskErrorStorageMessage(value string) string {
 // Only known upstream failure classes become user hints; never echo upstream text.
 func actionableUpstreamReason(value string) string {
 	lower := strings.ToLower(value)
+	if strings.Contains(lower, "requires public https reference urls") {
+		return "当前视频渠道要求参考素材使用公网 HTTPS 链接，请联系管理员调整素材上传方式和请求协议。"
+	}
 	image := strings.Contains(lower, "image") || strings.Contains(lower, "图片") || strings.Contains(lower, "file") || strings.Contains(lower, "参考图")
 	tooLarge := strings.Contains(lower, "too large") || strings.Contains(lower, "exceed") || strings.Contains(lower, "超过") || strings.Contains(lower, "25mb") || strings.Contains(lower, "25 mb")
 	switch {

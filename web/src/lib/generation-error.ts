@@ -121,6 +121,7 @@ function sanitizeUserVisibleError(value: string) {
 
 function actionableUpstreamReason(value: string) {
     const lower = value.toLowerCase();
+    if (lower.includes("requires public https reference urls")) return "当前视频渠道要求参考素材使用公网 HTTPS 链接，请联系管理员调整素材上传方式和请求协议。";
     const image = lower.includes("image") || lower.includes("图片") || lower.includes("file") || lower.includes("参考图");
     const tooLarge = lower.includes("too large") || lower.includes("exceed") || lower.includes("超过") || lower.includes("25mb") || lower.includes("25 mb");
     if (image && tooLarge) return "参考图片超过模型支持的大小限制，请压缩图片后重试。";

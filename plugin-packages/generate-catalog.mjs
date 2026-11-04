@@ -130,6 +130,7 @@ add({
 
 add({
   id: "openai-responses", providerId: "openai-response", name: "OpenAI Responses", vendor: "OpenAI", capability: "text",
+  version: "2.0.2",
   baseUrl: "https://api.openai.com", auth: bearer, params: textParams,
   create: jsonCreate("/responses", {
     model: ref("request.model"),
@@ -147,7 +148,15 @@ add({
   }),
   agent: jsonCreate("/responses", { $merge: [ref("request.extra.agent.responses"), { model: ref("request.model") }] }),
   agentResponse: { textPaths: ["output_text"], reasoningPaths: ["reasoning.summary.0.text"], toolCallsPath: "output", toolCallIdPaths: ["call_id", "id"], toolCallNamePaths: ["name"], toolCallArgumentsPaths: ["arguments"] },
-  response: { status: "succeeded", textPaths: ["output_text"], reasoningPaths: ["reasoning.summary.0.text"], usage: ref("response.usage"), errorPaths: ["error.code"], messagePaths: ["error.message"] }
+  response: {
+    status: "succeeded",
+    text: coalesce(ref("response.output_text"), {
+      $join: [filter(map(filter(ref("response.output"), "message", eq(ref("message.type"), "message")), "message", {
+        $join: [map(filter(ref("message.content"), "part", eq(ref("part.type"), "output_text")), "part", ref("part.text")), ""]
+      }), "text", ne(trim(ref("text")), "")), ""]
+    }),
+    textPaths: ["output_text"], reasoningPaths: ["reasoning.summary.0.text"], usage: ref("response.usage"), errorPaths: ["error.code"], messagePaths: ["error.message"]
+  }
 });
 
 add({
@@ -1335,7 +1344,7 @@ function manifestFor(spec) {
     apiVersion: "yingce.plugin/v2",
     id: spec.id,
     name: spec.name,
-    version: "2.0.0",
+    version: spec.version || "2.0.0",
     author: `${spec.vendor} / 影策`,
     description: `${spec.name} 独立请求协议插件。`,
     documentation: `# ${spec.name}\n\n完整字段、映射、响应、鉴权和兼容边界见包内 README.md 与 docs/interface.md。\n\n## 影策运行时合同\n\n用户只操作统一的文本、图片或视频能力；插件负责把统一请求转换为 ${spec.name} 上游协议。`,

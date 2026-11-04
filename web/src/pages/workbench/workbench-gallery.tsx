@@ -7,6 +7,7 @@ import { SegmentedControl } from "@/components/ui/base/segmented-control/segment
 import { AntTooltip as Tooltip } from "@/components/ui/base/tooltip/ant-tooltip";
 import { RelativeTime } from "@/components/ui/product/relative-time";
 import { cn } from "@/lib/utils";
+import { generationErrorMessage } from "@/lib/generation-error";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { WorkbenchKind, WorkbenchTool } from "@/services/api/workbench";
 
@@ -220,15 +221,24 @@ function ProgressTile({ tile, actions, busy }: { tile: Extract<GalleryTile, { ty
 
 function FailedTile({ task, actions, busy }: { task: GenerationTask; actions: GalleryActions; busy: boolean }) {
     const cancelled = task.status === "cancelled";
+    const [expanded, setExpanded] = useState(false);
+    const reason = generationErrorMessage(task.error || "任务失败，暂未返回具体原因，请到创作历史查看或联系管理员。");
     return (
         <div className={cn("wb-tile is-failed", cancelled && "is-cancelled")}>
             <span className="wb-tile-state">
                 <CircleAlert />
                 <strong>{cancelled ? "已取消" : "生成失败"}</strong>
-                {!cancelled && task.error ? (
-                    <small className="wb-tile-error" title={task.error}>
-                        {task.error}
-                    </small>
+                {!cancelled ? (
+                    <>
+                        <small className={cn("wb-tile-error", expanded && "is-expanded")} title={reason}>
+                            {reason}
+                        </small>
+                        {reason.length > 45 ? (
+                            <Button size="small" type="text" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+                                {expanded ? "收起原因" : "展开原因"}
+                            </Button>
+                        ) : null}
+                    </>
                 ) : null}
                 <Button size="small" icon={busy ? <LoaderCircle className="wb-spin" /> : <RotateCcw />} disabled={busy} onClick={() => actions.retryTask(task)}>
                     重新生成

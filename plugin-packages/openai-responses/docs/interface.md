@@ -85,6 +85,7 @@
 | 映射位置 | 上游路径或转换表达式 |
 | --- | --- |
 | `response.status` | `"succeeded"` |
+| `response.text` | 优先使用 `output_text`，否则过滤并拼接 `output[].content[]` 中的正文；完整表达式见下方 Manifest。 |
 | `response.textPaths[0]` | `"output_text"` |
 | `response.reasoningPaths[0]` | `"reasoning.summary.0.text"` |
 | `response.usage` | `{"$ref":"response.usage"}` |
@@ -99,6 +100,8 @@
 | `agentResponse.toolCallArgumentsPaths[0]` | `"arguments"` |
 
 ## 响应与错误
+
+同步正文优先读取顶层 `output_text`；缺失时按顺序拼接 `output[]` 中 `type=message` 的 `content[]` 内 `type=output_text` 文本。忽略整条空白消息、推理项和工具调用，保留正文内部的换行及缩进；Agent 同步响应复用该提取表达式，工具调用仍单独解析。数组拼接使用运行时 `$join: [字符串数组, 分隔符]` 表达式。
 
 插件把上游 task/status/text/media/usage 映射为统一结果。临时媒体 URL 标记为 ephemeral，由宿主立即下载持久化。HTTP 错误、业务 code 和 error object 保持失败语义，不包装成成功。
 
@@ -116,7 +119,7 @@
   "apiVersion": "yingce.plugin/v2",
   "id": "openai-responses",
   "name": "OpenAI Responses",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "author": "OpenAI / 影策",
   "description": "OpenAI Responses 独立请求协议插件。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
@@ -422,6 +425,80 @@
         },
         "response": {
           "status": "succeeded",
+          "text": {
+            "$coalesce": [
+              {
+                "$ref": "response.output_text"
+              },
+              {
+                "$join": [
+                  {
+                    "$filter": {
+                      "from": {
+                        "$map": {
+                          "from": {
+                            "$filter": {
+                              "from": {
+                                "$ref": "response.output"
+                              },
+                              "where": {
+                                "$eq": [
+                                  {
+                                    "$ref": "item.type"
+                                  },
+                                  "message"
+                                ]
+                              }
+                            }
+                          },
+                          "as": "message",
+                          "in": {
+                            "$join": [
+                              {
+                                "$map": {
+                                  "from": {
+                                    "$filter": {
+                                      "from": {
+                                        "$ref": "message.content"
+                                      },
+                                      "where": {
+                                        "$eq": [
+                                          {
+                                            "$ref": "item.type"
+                                          },
+                                          "output_text"
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "in": {
+                                    "$ref": "item.text"
+                                  }
+                                }
+                              },
+                              ""
+                            ]
+                          }
+                        }
+                      },
+                      "as": "text",
+                      "where": {
+                        "$ne": [
+                          {
+                            "$trim": {
+                              "$ref": "text"
+                            }
+                          },
+                          ""
+                        ]
+                      }
+                    }
+                  },
+                  ""
+                ]
+              }
+            ]
+          },
           "textPaths": [
             "output_text"
           ],

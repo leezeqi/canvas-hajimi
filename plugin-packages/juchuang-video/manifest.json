@@ -1,0 +1,589 @@
+{
+  "apiVersion": "yingce.plugin/v2",
+  "id": "juchuang-video",
+  "name": "聚创引擎视频",
+  "version": "1.0.0",
+  "author": "影策",
+  "description": "聚创引擎视频异步协议，先上传参考素材，再提交生成并查询原任务。",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "API Key（需视频和文件权限）",
+        "required": true
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "id": "juchuang-video",
+        "label": "聚创引擎视频",
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "baseUrl": "https://nexhub.token6688.com",
+        "requiresPublicMediaUrls": false,
+        "idempotentCreate": true,
+        "detachedPolling": true,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "聚创模型卡 ID，不能使用其他中转站的模型别名。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频描述。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "params.images",
+            "description": "先上传再按顺序传 URL；首帧在尾帧之前。"
+          },
+          {
+            "name": "videos",
+            "type": "media[]",
+            "required": false,
+            "mapping": "params.videos",
+            "description": "参考视频，需满足模型卡限制及上传的 50MB 上限。"
+          },
+          {
+            "name": "audios",
+            "type": "media[]",
+            "required": false,
+            "mapping": "params.audios",
+            "description": "参考音频，先上传到聚创文件服务。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "params.duration",
+            "description": "时长按模型卡配置，不根据模型名猜测。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "params.aspect_ratio",
+            "description": "画幅比例。"
+          },
+          {
+            "name": "resolution",
+            "type": "string",
+            "required": false,
+            "mapping": "params.resolution",
+            "description": "输出清晰度。"
+          },
+          {
+            "name": "operation",
+            "type": "string",
+            "required": false,
+            "mapping": "params.mode",
+            "description": "按输入角色映射文生、首帧、首尾帧或参考生。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "params.quality/params.lane_id",
+            "description": "juchuang-video 命名空间可选 quality、lane_id。"
+          }
+        ],
+        "upload": {
+          "kinds": [
+            "image",
+            "video",
+            "audio"
+          ],
+          "method": "POST",
+          "path": "/v1/files",
+          "originPath": true,
+          "contentType": "multipart/form-data",
+          "files": [
+            {
+              "name": "file",
+              "source": {
+                "$ref": "media"
+              }
+            }
+          ],
+          "id": {
+            "$if": {
+              "condition": {
+                "$eq": [
+                  {
+                    "$at": [
+                      {
+                        "$split": [
+                          {
+                            "$ref": "response.url"
+                          },
+                          "://"
+                        ]
+                      },
+                      0
+                    ]
+                  },
+                  "https"
+                ]
+              },
+              "then": {
+                "$ref": "response.url"
+              },
+              "else": null
+            }
+          }
+        },
+        "validations": [
+          {
+            "assert": {
+              "$gt": [
+                {
+                  "$len": {
+                    "$trim": {
+                      "$ref": "request.prompt"
+                    }
+                  }
+                },
+                0
+              ]
+            },
+            "message": "视频描述不能为空"
+          },
+          {
+            "assert": {
+              "$gt": [
+                {
+                  "$len": {
+                    "$ref": "request.extra.idempotencyKey"
+                  }
+                },
+                0
+              ]
+            },
+            "message": "缺少视频提交幂等标识，请重新提交"
+          },
+          {
+            "assert": {
+              "$eq": [
+                {
+                  "$len": {
+                    "$filter": {
+                      "from": {
+                        "$ref": "request.inputs"
+                      },
+                      "as": "media",
+                      "where": {
+                        "$not": {
+                          "$eq": [
+                            {
+                              "$at": [
+                                {
+                                  "$split": [
+                                    {
+                                      "$ref": "media.uploadId"
+                                    },
+                                    "://"
+                                  ]
+                                },
+                                0
+                              ]
+                            },
+                            "https"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                0
+              ]
+            },
+            "message": "参考素材上传未返回有效 HTTPS 链接，请检查文件权限后重新上传"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/media/generate",
+          "originPath": true,
+          "contentType": "application/json",
+          "body": {
+            "model": {
+              "$ref": "request.model"
+            },
+            "prompt": {
+              "$ref": "request.prompt"
+            },
+            "client_request_id": {
+              "$ref": "request.extra.idempotencyKey"
+            },
+            "params": {
+              "mode": {
+                "$switch": {
+                  "cases": [
+                    {
+                      "when": {
+                        "$eq": [
+                          {
+                            "$ref": "request.operation"
+                          },
+                          "reference_to_video"
+                        ]
+                      },
+                      "then": "reference"
+                    },
+                    {
+                      "when": {
+                        "$gt": [
+                          {
+                            "$len": {
+                              "$filter": {
+                                "from": {
+                                  "$ref": "request.images"
+                                },
+                                "as": "media",
+                                "where": {
+                                  "$eq": [
+                                    {
+                                      "$ref": "media.role"
+                                    },
+                                    "last_frame"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          0
+                        ]
+                      },
+                      "then": "first-last"
+                    },
+                    {
+                      "when": {
+                        "$eq": [
+                          {
+                            "$ref": "request.operation"
+                          },
+                          "image_to_video"
+                        ]
+                      },
+                      "then": "first-frame"
+                    },
+                    {
+                      "when": {
+                        "$gt": [
+                          {
+                            "$len": {
+                              "$ref": "request.inputs"
+                            }
+                          },
+                          0
+                        ]
+                      },
+                      "then": "reference"
+                    }
+                  ],
+                  "default": "text-to-video"
+                }
+              },
+              "duration": {
+                "$omitEmpty": {
+                  "$ref": "request.duration"
+                }
+              },
+              "resolution": {
+                "$omitEmpty": {
+                  "$ref": "request.resolution"
+                }
+              },
+              "aspect_ratio": {
+                "$omitEmpty": {
+                  "$ref": "request.aspectRatio"
+                }
+              },
+              "images": {
+                "$omitEmpty": {
+                  "$map": {
+                    "from": {
+                      "$concatArrays": [
+                        {
+                          "$filter": {
+                            "from": {
+                              "$sortByOrder": {
+                                "$ref": "request.images"
+                              }
+                            },
+                            "as": "media",
+                            "where": {
+                              "$eq": [
+                                {
+                                  "$ref": "media.role"
+                                },
+                                "first_frame"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "$filter": {
+                            "from": {
+                              "$sortByOrder": {
+                                "$ref": "request.images"
+                              }
+                            },
+                            "as": "media",
+                            "where": {
+                              "$not": {
+                                "$in": [
+                                  {
+                                    "$ref": "media.role"
+                                  },
+                                  [
+                                    "first_frame",
+                                    "last_frame"
+                                  ]
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "$filter": {
+                            "from": {
+                              "$sortByOrder": {
+                                "$ref": "request.images"
+                              }
+                            },
+                            "as": "media",
+                            "where": {
+                              "$eq": [
+                                {
+                                  "$ref": "media.role"
+                                },
+                                "last_frame"
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "as": "media",
+                    "in": {
+                      "$ref": "media.uploadId"
+                    }
+                  }
+                }
+              },
+              "videos": {
+                "$omitEmpty": {
+                  "$map": {
+                    "from": {
+                      "$sortByOrder": {
+                        "$ref": "request.videos"
+                      }
+                    },
+                    "as": "media",
+                    "in": {
+                      "$ref": "media.uploadId"
+                    }
+                  }
+                }
+              },
+              "audios": {
+                "$omitEmpty": {
+                  "$map": {
+                    "from": {
+                      "$sortByOrder": {
+                        "$ref": "request.audios"
+                      }
+                    },
+                    "as": "media",
+                    "in": {
+                      "$ref": "media.uploadId"
+                    }
+                  }
+                }
+              },
+              "quality": {
+                "$omitEmpty": {
+                  "$ref": "request.providerOptions.juchuang-video.quality"
+                }
+              },
+              "lane_id": {
+                "$omitEmpty": {
+                  "$ref": "request.providerOptions.juchuang-video.lane_id"
+                }
+              }
+            }
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}",
+          "originPath": true
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$if": {
+              "condition": {
+                "$eq": [
+                  {
+                    "$ref": "response.is_final"
+                  },
+                  true
+                ]
+              },
+              "then": {
+                "$if": {
+                  "condition": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "completed"
+                    ]
+                  },
+                  "then": "succeeded",
+                  "else": "failed"
+                }
+              },
+              "else": "pending"
+            }
+          },
+          "stage": {
+            "$switch": {
+              "cases": [
+                {
+                  "when": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "needs_review"
+                    ]
+                  },
+                  "then": "等待上游审核"
+                },
+                {
+                  "when": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "processing"
+                    ]
+                  },
+                  "then": "上游生成中"
+                }
+              ],
+              "default": "上游排队中"
+            }
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.error"
+              },
+              {
+                "$ref": "response.msg"
+              },
+              {
+                "$ref": "response.message"
+              }
+            ]
+          },
+          "videos": {
+            "$if": {
+              "condition": {
+                "$and": [
+                  {
+                    "$eq": [
+                      {
+                        "$ref": "response.is_final"
+                      },
+                      true
+                    ]
+                  },
+                  {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "completed"
+                    ]
+                  }
+                ]
+              },
+              "then": {
+                "$coalesce": [
+                  {
+                    "$ref": "response.output_url"
+                  },
+                  {
+                    "$ref": "response.result.videos"
+                  },
+                  {
+                    "$ref": "response.data"
+                  },
+                  {
+                    "$ref": "response.result_url"
+                  }
+                ]
+              },
+              "else": null
+            }
+          },
+          "errorPaths": [
+            "error.code"
+          ],
+          "resultEphemeral": true
+        }
+      }
+    ]
+  },
+  "documentation": "# 聚创引擎视频\n\n聚创引擎独立视频协议插件，使用现有声明式协议引擎。\n\n本地参考图片、视频和音频先上传到聚创文件接口，生成请求只引用上传返回的 HTTPS URL。\n支持文生、首帧、首尾帧和多模态参考，具体能力、时长、素材限制与价格以所选上游模型卡为准。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n\n---\n\n# 聚创引擎视频接口\n\n## 身份与配置\n\n- 插件和 Provider ID：`juchuang-video`。\n- 默认 Base URL：`https://nexhub.token6688.com`。\n- `apiKey`：Bearer 密钥；带参考素材时同时需要文件上传权限。\n- 不修改其他视频协议，不支持上游未公开的取消接口。\n\n## 上传、提交与查询\n\n1. 图片 `images`、视频 `videos`、音频 `audios` 均先 `POST /v1/files`，multipart 字段 `file`，单文件不超过 50MB，同时遵守模型卡更严格的限制。\n2. 必须取得有效 HTTPS `url`，没有 URL 时停止提交。协议通过 `media.uploadId` 保存 URL，不使用影策临时签名链接作为聚创的生成素材。\n3. `POST /v1/media/generate`，JSON 顶层只有 `model`、`prompt`、`client_request_id` 和 `params`。`model` 必须是聚创模型卡 ID。`prompt` 必填。\n4. `duration`、`aspectRatio`、`resolution` 映射到 `params.duration`、`params.aspect_ratio`、`params.resolution`。`operation` 和素材角色映射 `params.mode`：text-to-video、first-frame、first-last、reference。首帧先于尾帧，其他素材按 order 排序。\n5. `providerOptions.juchuang-video` 只允许显式 `quality`、`lane_id`，不透传任意 body 覆盖受校验参数。模型未公开音频生成或水印开关时不发送这些字段。\n6. `client_request_id` 使用同一任务的宿主幂等键；提交重试仍使用原键。已有 task_id 的任务只查询，不重新上传或提交。\n7. `GET /v1/tasks/{task_id}`，分离式轮询。503 等暂时性查询故障不重新创建任务。\n\n## 响应与错误\n\n提交兼容 `data.task_id`、`task_id` 和 `id`。查询以 `is_final` 为终态依据：false（包括 needs_review）继续等待；true 且 status=completed 才成功，其余终态失败。\n成功优先读取 `output_url`，再读取 result.videos、data、result_url。失败从 error.message、error、msg、message 提取，最终由后端过滤成可公开原因。HTTP 失败保留真实失败语义。\n\n## 模型边界\n\n例如 `seedance-2-0-special` 按文档固定 15 秒；不能复用其他上游的“特价seedance-2.0-720p”别名或 12 秒配置。\n价格、模型 ID、素材限制和支持的模式均单独配置，不根据名称猜测，也不自动切换现有渠道。\n\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整接口定义\n\n以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。\n\n```json\n{\n  \"apiVersion\": \"yingce.plugin/v2\",\n  \"id\": \"juchuang-video\",\n  \"name\": \"聚创引擎视频\",\n  \"version\": \"1.0.0\",\n  \"author\": \"影策\",\n  \"description\": \"聚创引擎视频异步协议，先上传参考素材，再提交生成并查询原任务。\",\n  \"permissions\": [\n    \"generation.run\",\n    \"media.read\"\n  ],\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"apiKey\",\n        \"type\": \"secret\",\n        \"label\": \"API Key（需视频和文件权限）\",\n        \"required\": true\n      }\n    ]\n  },\n  \"contributes\": {\n    \"providers\": [\n      {\n        \"id\": \"juchuang-video\",\n        \"label\": \"聚创引擎视频\",\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"baseUrl\": \"https://nexhub.token6688.com\",\n        \"requiresPublicMediaUrls\": false,\n        \"idempotentCreate\": true,\n        \"detachedPolling\": true,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"聚创模型卡 ID，不能使用其他中转站的模型别名。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频描述。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"params.images\",\n            \"description\": \"先上传再按顺序传 URL；首帧在尾帧之前。\"\n          },\n          {\n            \"name\": \"videos\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"params.videos\",\n            \"description\": \"参考视频，需满足模型卡限制及上传的 50MB 上限。\"\n          },\n          {\n            \"name\": \"audios\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"params.audios\",\n            \"description\": \"参考音频，先上传到聚创文件服务。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"params.duration\",\n            \"description\": \"时长按模型卡配置，不根据模型名猜测。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"params.aspect_ratio\",\n            \"description\": \"画幅比例。\"\n          },\n          {\n            \"name\": \"resolution\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"params.resolution\",\n            \"description\": \"输出清晰度。\"\n          },\n          {\n            \"name\": \"operation\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"params.mode\",\n            \"description\": \"按输入角色映射文生、首帧、首尾帧或参考生。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"params.quality/params.lane_id\",\n            \"description\": \"juchuang-video 命名空间可选 quality、lane_id。\"\n          }\n        ],\n        \"upload\": {\n          \"kinds\": [\n            \"image\",\n            \"video\",\n            \"audio\"\n          ],\n          \"method\": \"POST\",\n          \"path\": \"/v1/files\",\n          \"originPath\": true,\n          \"contentType\": \"multipart/form-data\",\n          \"files\": [\n            {\n              \"name\": \"file\",\n              \"source\": {\n                \"$ref\": \"media\"\n              }\n            }\n          ],\n          \"id\": {\n            \"$if\": {\n              \"condition\": {\n                \"$eq\": [\n                  {\n                    \"$at\": [\n                      {\n                        \"$split\": [\n                          {\n                            \"$ref\": \"response.url\"\n                          },\n                          \"://\"\n                        ]\n                      },\n                      0\n                    ]\n                  },\n                  \"https\"\n                ]\n              },\n              \"then\": {\n                \"$ref\": \"response.url\"\n              },\n              \"else\": null\n            }\n          }\n        },\n        \"validations\": [\n          {\n            \"assert\": {\n              \"$gt\": [\n                {\n                  \"$len\": {\n                    \"$trim\": {\n                      \"$ref\": \"request.prompt\"\n                    }\n                  }\n                },\n                0\n              ]\n            },\n            \"message\": \"视频描述不能为空\"\n          },\n          {\n            \"assert\": {\n              \"$gt\": [\n                {\n                  \"$len\": {\n                    \"$ref\": \"request.extra.idempotencyKey\"\n                  }\n                },\n                0\n              ]\n            },\n            \"message\": \"缺少视频提交幂等标识，请重新提交\"\n          },\n          {\n            \"assert\": {\n              \"$eq\": [\n                {\n                  \"$len\": {\n                    \"$filter\": {\n                      \"from\": {\n                        \"$ref\": \"request.inputs\"\n                      },\n                      \"as\": \"media\",\n                      \"where\": {\n                        \"$not\": {\n                          \"$eq\": [\n                            {\n                              \"$at\": [\n                                {\n                                  \"$split\": [\n                                    {\n                                      \"$ref\": \"media.uploadId\"\n                                    },\n                                    \"://\"\n                                  ]\n                                },\n                                0\n                              ]\n                            },\n                            \"https\"\n                          ]\n                        }\n                      }\n                    }\n                  }\n                },\n                0\n              ]\n            },\n            \"message\": \"参考素材上传未返回有效 HTTPS 链接，请检查文件权限后重新上传\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/media/generate\",\n          \"originPath\": true,\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"model\": {\n              \"$ref\": \"request.model\"\n            },\n            \"prompt\": {\n              \"$ref\": \"request.prompt\"\n            },\n            \"client_request_id\": {\n              \"$ref\": \"request.extra.idempotencyKey\"\n            },\n            \"params\": {\n              \"mode\": {\n                \"$switch\": {\n                  \"cases\": [\n                    {\n                      \"when\": {\n                        \"$eq\": [\n                          {\n                            \"$ref\": \"request.operation\"\n                          },\n                          \"reference_to_video\"\n                        ]\n                      },\n                      \"then\": \"reference\"\n                    },\n                    {\n                      \"when\": {\n                        \"$gt\": [\n                          {\n                            \"$len\": {\n                              \"$filter\": {\n                                \"from\": {\n                                  \"$ref\": \"request.images\"\n                                },\n                                \"as\": \"media\",\n                                \"where\": {\n                                  \"$eq\": [\n                                    {\n                                      \"$ref\": \"media.role\"\n                                    },\n                                    \"last_frame\"\n                                  ]\n                                }\n                              }\n                            }\n                          },\n                          0\n                        ]\n                      },\n                      \"then\": \"first-last\"\n                    },\n                    {\n                      \"when\": {\n                        \"$eq\": [\n                          {\n                            \"$ref\": \"request.operation\"\n                          },\n                          \"image_to_video\"\n                        ]\n                      },\n                      \"then\": \"first-frame\"\n                    },\n                    {\n                      \"when\": {\n                        \"$gt\": [\n                          {\n                            \"$len\": {\n                              \"$ref\": \"request.inputs\"\n                            }\n                          },\n                          0\n                        ]\n                      },\n                      \"then\": \"reference\"\n                    }\n                  ],\n                  \"default\": \"text-to-video\"\n                }\n              },\n              \"duration\": {\n                \"$omitEmpty\": {\n                  \"$ref\": \"request.duration\"\n                }\n              },\n              \"resolution\": {\n                \"$omitEmpty\": {\n                  \"$ref\": \"request.resolution\"\n                }\n              },\n              \"aspect_ratio\": {\n                \"$omitEmpty\": {\n                  \"$ref\": \"request.aspectRatio\"\n                }\n              },\n              \"images\": {\n                \"$omitEmpty\": {\n                  \"$map\": {\n                    \"from\": {\n                      \"$concatArrays\": [\n                        {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$sortByOrder\": {\n                                \"$ref\": \"request.images\"\n                              }\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"media.role\"\n                                },\n                                \"first_frame\"\n                              ]\n                            }\n                          }\n                        },\n                        {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$sortByOrder\": {\n                                \"$ref\": \"request.images\"\n                              }\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$not\": {\n                                \"$in\": [\n                                  {\n                                    \"$ref\": \"media.role\"\n                                  },\n                                  [\n                                    \"first_frame\",\n                                    \"last_frame\"\n                                  ]\n                                ]\n                              }\n                            }\n                          }\n                        },\n                        {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$sortByOrder\": {\n                                \"$ref\": \"request.images\"\n                              }\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"media.role\"\n                                },\n                                \"last_frame\"\n                              ]\n                            }\n                          }\n                        }\n                      ]\n                    },\n                    \"as\": \"media\",\n                    \"in\": {\n                      \"$ref\": \"media.uploadId\"\n                    }\n                  }\n                }\n              },\n              \"videos\": {\n                \"$omitEmpty\": {\n                  \"$map\": {\n                    \"from\": {\n                      \"$sortByOrder\": {\n                        \"$ref\": \"request.videos\"\n                      }\n                    },\n                    \"as\": \"media\",\n                    \"in\": {\n                      \"$ref\": \"media.uploadId\"\n                    }\n                  }\n                }\n              },\n              \"audios\": {\n                \"$omitEmpty\": {\n                  \"$map\": {\n                    \"from\": {\n                      \"$sortByOrder\": {\n                        \"$ref\": \"request.audios\"\n                      }\n                    },\n                    \"as\": \"media\",\n                    \"in\": {\n                      \"$ref\": \"media.uploadId\"\n                    }\n                  }\n                }\n              },\n              \"quality\": {\n                \"$omitEmpty\": {\n                  \"$ref\": \"request.providerOptions.juchuang-video.quality\"\n                }\n              },\n              \"lane_id\": {\n                \"$omitEmpty\": {\n                  \"$ref\": \"request.providerOptions.juchuang-video.lane_id\"\n                }\n              }\n            }\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\",\n          \"originPath\": true\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$if\": {\n              \"condition\": {\n                \"$eq\": [\n                  {\n                    \"$ref\": \"response.is_final\"\n                  },\n                  true\n                ]\n              },\n              \"then\": {\n                \"$if\": {\n                  \"condition\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"completed\"\n                    ]\n                  },\n                  \"then\": \"succeeded\",\n                  \"else\": \"failed\"\n                }\n              },\n              \"else\": \"pending\"\n            }\n          },\n          \"stage\": {\n            \"$switch\": {\n              \"cases\": [\n                {\n                  \"when\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"needs_review\"\n                    ]\n                  },\n                  \"then\": \"等待上游审核\"\n                },\n                {\n                  \"when\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"processing\"\n                    ]\n                  },\n                  \"then\": \"上游生成中\"\n                }\n              ],\n              \"default\": \"上游排队中\"\n            }\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.error\"\n              },\n              {\n                \"$ref\": \"response.msg\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$if\": {\n              \"condition\": {\n                \"$and\": [\n                  {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.is_final\"\n                      },\n                      true\n                    ]\n                  },\n                  {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"completed\"\n                    ]\n                  }\n                ]\n              },\n              \"then\": {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"response.output_url\"\n                  },\n                  {\n                    \"$ref\": \"response.result.videos\"\n                  },\n                  {\n                    \"$ref\": \"response.data\"\n                  },\n                  {\n                    \"$ref\": \"response.result_url\"\n                  }\n                ]\n              },\n              \"else\": null\n            }\n          },\n          \"errorPaths\": [\n            \"error.code\"\n          ],\n          \"resultEphemeral\": true\n        }\n      }\n    ]\n  },\n  \"documentation\": \"<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>\"\n}\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n"
+}

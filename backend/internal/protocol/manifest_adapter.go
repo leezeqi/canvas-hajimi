@@ -90,6 +90,9 @@ func (a manifestAdapter) ParseAgent(_ context.Context, body []byte) (AgentResult
 	}
 	response := a.manifest.AgentResponse
 	result := AgentResult{Text: firstPathValue(payload, response.TextPaths...), Reasoning: firstPathValue(payload, response.ReasoningPaths...)}
+	if result.Text == "" {
+		result.Text = manifestResponseString(a.manifest.Response.Text, map[string]any{"response": payload})
+	}
 	if response.ToolCallsPath == "" {
 		return result, nil
 	}

@@ -91,6 +91,35 @@ func evaluateManifestOperator(operator string, operand any, env map[string]any) 
 			}
 		}
 		return nil, nil
+	case "$join":
+		args, ok := operand.([]any)
+		if !ok || len(args) != 2 {
+			return nil, fmt.Errorf("$join requires an array and a separator")
+		}
+		value, err := evaluateManifestValue(args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		separator, err := evaluateManifestValue(args[1], env)
+		if err != nil {
+			return nil, err
+		}
+		if value == nil {
+			return "", nil
+		}
+		items, ok := value.([]any)
+		if !ok {
+			return nil, fmt.Errorf("$join requires an array")
+		}
+		parts := make([]string, 0, len(items))
+		for _, item := range items {
+			text, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("$join requires string items")
+			}
+			parts = append(parts, text)
+		}
+		return strings.Join(parts, manifestString(separator)), nil
 	case "$concat":
 		values, ok := operand.([]any)
 		if !ok {

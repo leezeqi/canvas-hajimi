@@ -1416,6 +1416,12 @@
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
 }
+.wb-tile-error.is-expanded {
+    display: block;
+    min-height: 0;
+    overflow: auto;
+    -webkit-line-clamp: unset;
+}
 .wb-tile-progress {
     position: absolute;
     right: var(--space-3);
