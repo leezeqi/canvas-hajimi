@@ -35,6 +35,18 @@ def run(args, *, capture=False, stdout=None):
     return result.stdout if capture else None
 
 
+def require_buildkit():
+    try:
+        run(["docker", "buildx", "version"], capture=True)
+        details = run(["docker", "buildx", "inspect", "default"], capture=True)
+        driver = re.search(r"^Driver:\s*(\S+)\s*$", details, re.MULTILINE)
+    except DeployError as error:
+        raise DeployError("Docker Buildx/BuildKit is required. Install docker-buildx (Ubuntu Docker) "
+                          "or docker-buildx-plugin (Docker CE), then verify: docker buildx inspect default") from error
+    if driver is None or driver.group(1) != "docker":
+        raise DeployError("The default Buildx builder must use the local docker driver")
+
+
 def json_run(args):
     return json.loads(run(args, capture=True))
 
@@ -189,6 +201,7 @@ class Deployment:
         return path
 
     def preflight(self):
+        require_buildkit()
         self.discover()
         run(["docker", "compose", "version"], capture=True)
         if shutil.which("tar") is None:
@@ -239,7 +252,8 @@ class Deployment:
         timestamp = datetime.now(timezone.utc).isoformat()
         for name, dockerfile in [("backend", "backend/Dockerfile"), ("web", "Dockerfile"), ("yingce-agent", "yingce-agent/Dockerfile")]:
             print(f"Building {name} ...", flush=True)
-            command = ["docker", "build", "--label", f"org.opencontainers.image.revision={commit}",
+            command = ["docker", "buildx", "build", "--builder", "default", "--load", "--progress", "plain",
+                       "--label", f"org.opencontainers.image.revision={commit}",
                        "--build-arg", f"BUILD_COMMIT={commit}", "--build-arg", f"BUILD_VERSION={version}",
                        "--build-arg", f"BUILD_TIME={timestamp}", "-t", images[name], "-f", str(source / dockerfile)]
             license_key = self.config["services"]["web"].get("build", {}).get("args", {}).get("VITE_TLDRAW_LICENSE_KEY")

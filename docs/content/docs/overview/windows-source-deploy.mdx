@@ -10,7 +10,19 @@ title: Windows 一键源码部署
 
 ## 本地准备
 
-需要 Windows PowerShell 5.1 或更高版本、Git、Windows OpenSSH 的 `ssh` 和 `scp`。服务器需要 Python 3.12 或更高版本、Docker Compose V2、tar 和免交互 sudo。首次连接服务器应先独立核对 SSH 主机指纹并加入 known_hosts；脚本使用 `StrictHostKeyChecking=yes`，不自动信任新主机。
+需要 Windows PowerShell 5.1 或更高版本、Git、Windows OpenSSH 的 `ssh` 和 `scp`。服务器需要 Python 3.12 或更高版本、Docker Compose V2、Docker Buildx/BuildKit、tar 和免交互 sudo。首次连接服务器应先独立核对 SSH 主机指纹并加入 known_hosts；脚本使用 `StrictHostKeyChecking=yes`，不自动信任新主机。
+
+源码构建明确使用 `docker buildx build --builder default --load`，要求默认构建器使用本机 `docker` 驱动。这样才能支持 Dockerfile 的 `$BUILDPLATFORM`、`$TARGETOS`、`$TARGETARCH` 和 `RUN --mount=type=cache`，并把生成镜像加载到本机供 Compose 使用；不能使用旧构建器代替。
+
+Ubuntu 仓库安装的 Docker 可按以下方式补齐插件；若使用 Docker CE 官方软件源，对应包名通常为 `docker-buildx-plugin`。脚本只检查依赖，不会自动安装软件：
+
+```bash
+sudo apt-get install --no-install-recommends docker-buildx
+sudo docker buildx version
+sudo docker buildx inspect default
+```
+
+正式部署在打包和上传源码前执行远端只读预检查。缺少插件时立即报告安装提示，避免上传完成后才因旧构建器失败。
 
 根目录的 `一键部署.bat` 调用 `deploy/deploy.ps1`。连接信息保存在 Git 忽略的 `.local/deploy/server.json`，不要把真实连接信息和私钥提交到仓库。配置格式见 `deploy/server.example.json`：
 
@@ -39,7 +51,7 @@ title: Windows 一键源码部署
 .\一键部署.bat -Action Logs
 ```
 
-- `Preflight` 核对项目归属、六服务编排、运行状态、数据挂载、现有 override 和磁盘余量，不停止服务，不写入远程文件。
+- `Preflight` 核对本机 Buildx/BuildKit、项目归属、六服务编排、运行状态、数据挂载、现有 override 和磁盘余量，不停止服务，不写入远程文件。
 - `Status` 显示项目内所有容器，包括退出的迁移容器。
 - `Logs` 输出后端最近 100 行日志，故障排查时注意日志可能包含业务信息。
 

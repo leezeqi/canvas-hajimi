@@ -159,6 +159,9 @@ try {
   if ($LASTEXITCODE -ne 0 -or $upstreamCommit -notmatch '^[0-9a-f]{40}$') { throw "Could not resolve fetched upstream '$upstream'." }
   if ($commit -ne $upstreamCommit) { throw "Current commit is not pushed to $upstream. Local: $commit; upstream: $upstreamCommit." }
 
+  Write-Host 'Checking remote deployment and BuildKit before uploading source...'
+  Invoke-RemoteReadOnly 'preflight'
+
   $guid = [Guid]::NewGuid().ToString('N')
   $cacheRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot '.local\cache\deploy'))
   $tempDir = [System.IO.Path]::GetFullPath((Join-Path $cacheRoot $guid))

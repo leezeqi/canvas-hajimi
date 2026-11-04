@@ -211,6 +211,52 @@ class RollbackGuardsTests(unittest.TestCase):
                     self.assertEqual(sentinel.read_bytes(), b"keep")
 
 
+class BuildkitTests(unittest.TestCase):
+    def test_missing_plugin_fails_preflight_before_touching_project(self):
+        deployment = remote.Deployment(arguments())
+        with mock.patch.object(remote, "run", side_effect=remote.DeployError("missing plugin")), \
+             mock.patch.object(deployment, "discover") as discover:
+            with self.assertRaisesRegex(remote.DeployError, "Install docker-buildx"):
+                deployment.preflight()
+            discover.assert_not_called()
+
+    def test_unavailable_builder_has_actionable_error(self):
+        with mock.patch.object(remote, "run", side_effect=["buildx version", remote.DeployError("unavailable")]):
+            with self.assertRaisesRegex(remote.DeployError, "Buildx/BuildKit is required"):
+                remote.require_buildkit()
+
+    def test_refuses_nonlocal_builder(self):
+        with mock.patch.object(remote, "run", side_effect=["buildx version", "Name: default\nDriver: remote\n"]):
+            with self.assertRaisesRegex(remote.DeployError, "local docker driver"):
+                remote.require_buildkit()
+
+    def test_accepts_local_buildkit_builder(self):
+        with mock.patch.object(remote, "run", side_effect=["buildx version", "Name: default\nDriver: docker\nNodes:\nName: default\n"]) as command:
+            remote.require_buildkit()
+            self.assertEqual(command.call_args.args[0], ["docker", "buildx", "inspect", "default"])
+
+    def test_builds_all_images_with_explicit_local_buildkit_and_load(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder)
+            (source / "VERSION").write_text("v1.0.0\n", encoding="utf-8")
+            deployment = remote.Deployment(arguments())
+            deployment.config = {"services": {"web": {}}}
+            commit = "a" * 40
+            images = {name: f"canvas-{name}:source-{commit}" for name in ("backend", "web", "yingce-agent")}
+            info = [{"Config": {"Labels": {"org.opencontainers.image.revision": commit}}}]
+            with mock.patch.dict(remote.os.environ, {"DOCKER_BUILDKIT": "0", "BUILDX_BUILDER": "remote"}), \
+                 mock.patch.object(remote, "run") as command, \
+                 mock.patch.object(remote, "json_run", return_value=info), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                deployment.build(source, images, commit)
+            self.assertEqual(command.call_count, 3)
+            for call, (name, dockerfile) in zip(command.call_args_list, [("backend", "backend/Dockerfile"), ("web", "Dockerfile"), ("yingce-agent", "yingce-agent/Dockerfile")]):
+                args = call.args[0]
+                self.assertEqual(args[:6], ["docker", "buildx", "build", "--builder", "default", "--load"])
+                self.assertEqual(args[args.index("-t") + 1], images[name])
+                self.assertEqual(args[args.index("-f") + 1], str(source / dockerfile))
+
+
 class MigrationFailureTests(unittest.TestCase):
     def test_failure_after_migration_begins_stops_app_without_starting_old_binary(self):
         fake_fcntl = types.SimpleNamespace(flock=mock.Mock(), LOCK_EX=1, LOCK_NB=2)
