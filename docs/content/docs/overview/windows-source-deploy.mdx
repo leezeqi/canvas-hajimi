@@ -65,6 +65,8 @@ sudo docker buildx inspect default
 
 远端版本检查使用 HTTP/1.1，网络错误最多尝试 3 次，间隔 2 秒、4 秒；出现 Schannel/TLS 握手故障时，后续尝试切换到 Git 自带的 OpenSSL 后端。证书校验保持开启，设置仅作用于本次 `fetch`，不会更改全局或仓库 Git 配置。认证等非网络错误立即停止，持续网络失败也会在上传前停止，不会跳过远程版本校验。若仍报错，请检查当前代理和 GitHub 连通性。
 
+仓库通过 `.gitattributes` 将所有 `*.sh` 固定为 LF，避免 Windows 的 CRLF 出现在 Linux 解释器路径中。Web 镜像构建还会规范入口脚本换行并检查 Shell 语法。若启动日志出现 `exec /usr/local/bin/canvas-web-entrypoint: no such file or directory`，应检查镜像内脚本首行的实际字节；脚本存在时，CRLF 也可能导致该报错。
+
 ## 更新顺序和保留内容
 
 1. 从现有 Web 容器标签读取当前 Compose 文件列表和热修复 override，检查其他服务使用的编排没有冲突。

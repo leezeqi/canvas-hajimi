@@ -27,7 +27,9 @@ FROM nginx:1.27-alpine
 
 COPY --from=web-build /app/web/dist /opt/canvas-release
 COPY docker/canvas-web-entrypoint.sh /usr/local/bin/canvas-web-entrypoint
-RUN chmod +x /usr/local/bin/canvas-web-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/canvas-web-entrypoint \
+    && chmod +x /usr/local/bin/canvas-web-entrypoint \
+    && /bin/sh -n /usr/local/bin/canvas-web-entrypoint
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 ENTRYPOINT ["/usr/local/bin/canvas-web-entrypoint"]
