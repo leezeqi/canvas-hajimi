@@ -1141,6 +1141,55 @@ export default function CreatePage() {
         });
     };
 
+    // 删除单条生成记录：连同它对应的那条提示词一起移除，只删对话记录，不动素材库里的作品。
+    const confirmDeleteMessage = (item: CreationMessage) => {
+        const conversationId = activeIdRef.current;
+        const scope = conversationScope;
+        const label = item.mode === "video" ? "视频" : "图像";
+        modal.confirm({
+            className: "workspace-modal workspace-modal-compact",
+            title: `删除这条${label}生成记录？`,
+            content: "只会从当前对话中移除这条记录和对应的提示词，已保存到素材库的作品不会被删除。此操作不可撤销。",
+            okText: "删除记录",
+            okButtonProps: { danger: true },
+            cancelText: "保留",
+            onOk: async () => {
+                try {
+                    if (scope !== getActiveUserScope()) throw new Error("用户状态已切换，请刷新后重试");
+                    if (!conversationsRef.current.some((conversation) => conversation.id === conversationId)) {
+                        throw new Error("当前创作对话已不存在");
+                    }
+                    const next = updateCreationConversationSnapshot(conversationsRef.current, conversationId, (conversation) => {
+                        const messageIndex = conversation.messages.findIndex((message) => message.id === item.id);
+                        if (messageIndex < 0) throw new Error("这条生成记录已不存在");
+                        const message = conversation.messages[messageIndex];
+                        if (message.role !== "assistant" || message.mode === "text" || (message.status !== "done" && message.status !== "error" && message.status !== "cancelled")) {
+                            throw new Error("这条生成记录当前不可删除");
+                        }
+                        const previous = conversation.messages[messageIndex - 1];
+                        const removedIds = new Set([message.id, ...(previous?.role === "user" ? [previous.id] : [])]);
+                        const messages = conversation.messages.filter((entry) => !removedIds.has(entry.id));
+                        const firstPrompt = messages.find((entry) => entry.role === "user")?.content.trim();
+                        const isAutoTitle = conversation.title === "新创作" || conversation.title === conversation.messages.find((entry) => entry.role === "user")?.content.slice(0, 24);
+                        return {
+                            ...conversation,
+                            ...(isAutoTitle ? { title: firstPrompt ? firstPrompt.slice(0, 24) : "新创作" } : {}),
+                            updatedAt: new Date().toISOString(),
+                            messages,
+                        };
+                    });
+                    await saveCreationConversations(next);
+                    conversationsRef.current = next;
+                    setConversations(next);
+                    toast.success("生成记录已删除");
+                } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "生成记录删除失败");
+                    throw error;
+                }
+            },
+        });
+    };
+
     const createVariant = (item: CreationMessage, index: number) => {
         const previous = item.role === "assistant" ? activeConversation?.messages[index - 1] : item;
         if (!previous?.content || busy) return;
@@ -1294,6 +1343,7 @@ export default function CreatePage() {
                         onRecoverMedia={() => void recoverMessageMedia(item)}
                         refreshingResult={resultRefreshIds.has(item.id)}
                         onCreateVariant={() => createVariant(item, index)}
+                        onDeleteMessage={() => confirmDeleteMessage(item)}
                         onContinueCanvas={(ids) => void continueOnCanvas(ids)}
                         openingCanvas={openingCanvas}
                         onEditUserMessage={(text) => { setPrompt(text); window.requestAnimationFrame(() => composerFocusRef.current?.focus()); }}

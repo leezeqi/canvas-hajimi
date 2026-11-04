@@ -3,7 +3,7 @@
 import { conversationTimeFormatter, type CreationMessage } from "./creation-types";
 import { creationMessageNeedsResultSync } from "./creation-conversations";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
-import { AlertCircle, AlertTriangle, CircleStop, CloudOff, Copy, Download, FileText, Film, Image as ImageIcon, ImageOff, Maximize2, Music2, Pencil, RefreshCw, RotateCcw, UserRound, X, type LucideIcon, Blocks, Orbit } from "lucide-react";
+import { AlertCircle, AlertTriangle, CircleStop, CloudOff, Copy, Download, FileText, Film, Image as ImageIcon, ImageOff, Maximize2, Music2, Pencil, RefreshCw, RotateCcw, Trash2, UserRound, X, type LucideIcon, Blocks, Orbit } from "lucide-react";
 import { GenerationToolCard, type GenerationToolStatus } from "@/components/ai/generation-tool-card";
 import { GenerationPhaseSteps } from "@/components/ai/generation-phase-steps";
 import { MessageReasoning } from "@/components/ai/message-reasoning";
@@ -38,6 +38,7 @@ export function CreationMessageView({
     onRecoverMedia,
     refreshingResult = false,
     onCreateVariant,
+    onDeleteMessage,
     onEditUserMessage,
     onContinueCanvas,
     openingCanvas,
@@ -49,6 +50,8 @@ export function CreationMessageView({
     onRecoverMedia: () => void;
     refreshingResult?: boolean;
     onCreateVariant: () => void;
+    /** 删除这条生成记录（成功、失败、已取消的媒体消息可用）。 */
+    onDeleteMessage?: () => void;
     onEditUserMessage: (text: string) => void;
     onContinueCanvas: (ids?: string[]) => void;
     openingCanvas: boolean;
@@ -76,6 +79,12 @@ export function CreationMessageView({
                     <button type="button" className="creation-message-variant-action" onClick={onCreateVariant}>
                         <RefreshCw />
                         生成同款
+                    </button>
+                ) : null}
+                {onDeleteMessage && (item.status === "done" || item.status === "error" || item.status === "cancelled") ? (
+                    <button type="button" className="creation-message-variant-action creation-message-delete-action" aria-label="删除这条生成记录" onClick={onDeleteMessage}>
+                        <Trash2 />
+                        删除
                     </button>
                 ) : null}
                 {item.createdAt ? <time dateTime={item.createdAt}>{formatMessageTime(item.createdAt)}</time> : null}

@@ -24397,6 +24397,13 @@ html:not(.dark) .creation-home .creation-user-message-copy-wrap {
     width: var(--space-3);
     height: var(--space-3);
 }
+/* 删除按钮紧跟「生成同款」时不再自己推到右侧；失败/取消态没有「生成同款」，由它自己靠右。 */
+.creation-home .creation-message-variant-action + .creation-message-delete-action {
+    margin-left: 0;
+}
+.creation-home .creation-message-delete-action:hover {
+    color: var(--status-error);
+}
 @media (hover: hover) and (pointer: fine) {
     .creation-home .creation-assistant-message:not(:hover):not(:focus-within) .creation-message-variant-action {
         opacity: 0;
