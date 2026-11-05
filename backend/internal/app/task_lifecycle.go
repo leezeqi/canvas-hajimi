@@ -39,6 +39,10 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	if err != nil {
 		return nil, err
 	}
+	// 已删除的任务不在任何列表中，重试会产生用户看不到的扣费任务。
+	if task.UserDeletedAt != nil {
+		return nil, NotFound("任务已删除")
+	}
 	if task.MediaRecoveryJSON != "" {
 		return nil, BadAuthRequest("作品已生成，请使用重试保存，不要重复生成")
 	}

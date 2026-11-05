@@ -57,6 +57,8 @@ export type GalleryActions = {
     retryFailed: (batch: GalleryBatch) => void;
     resume: (batch: GalleryBatch) => void;
     dismiss: (batch: GalleryBatch) => void;
+    /** 删除已提交到服务端的整组记录；组内仍有生成中的任务时不提供。 */
+    remove: (batch: GalleryBatch) => void;
     visible: (batchKey: string) => void;
     measure: (batchKey: string, ratio: number) => void;
 };
@@ -261,12 +263,14 @@ const BatchCard = memo(function BatchCard({ batch, kind, actions, busyTaskIds }:
               : counts.failed || batch.resumable
                 ? `${counts.done} / ${counts.total} 已完成`
                 : `${counts.total} ${unit}`;
-    const menuItems = [
+    const actionItems = [
         ...(counts.active ? [{ key: "cancel", label: "取消未完成的任务" }] : []),
         ...(counts.failed ? [{ key: "retry", label: "重新生成失败项" }] : []),
         ...(batch.resumable ? [{ key: "resume", label: `继续提交剩余 ${batch.resumable} 个` }] : []),
         ...(batch.localOnly && !batch.submitting ? [{ key: "dismiss", label: "移除这组记录" }] : []),
     ];
+    const removable = batch.tasks.length > 0 && !counts.active && !batch.submitting;
+    const menuItems = removable ? [...actionItems, ...(actionItems.length ? [{ type: "divider" as const }] : []), { key: "remove", label: "删除这组记录", danger: true }] : actionItems;
     return (
         <article ref={ref} className="wb-batch" aria-label={batch.prompt.slice(0, 60) || "生成批次"}>
             <header className="wb-batch-head">
@@ -306,6 +310,7 @@ const BatchCard = memo(function BatchCard({ batch, kind, actions, busyTaskIds }:
                                     if (key === "retry") actions.retryFailed(batch);
                                     if (key === "resume") actions.resume(batch);
                                     if (key === "dismiss") actions.dismiss(batch);
+                                    if (key === "remove") actions.remove(batch);
                                 },
                             }}
                         >

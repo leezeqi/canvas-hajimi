@@ -363,8 +363,9 @@ export function refreshGenerationTaskStatus(id: string, options?: { signal?: Abo
     return http.get<GenerationTask>(`/tasks/${encodeURIComponent(id)}`, { signal: options?.signal });
 }
 
+/** 只从作品列表和创作历史移除终态任务；计费记录和已生成文件由后端保留。 */
 export function deleteGenerationTask(id: string) {
-    return http.delete<void>(`/tasks/${encodeURIComponent(id)}`);
+    return http.delete<{ id: string }>(`/tasks/${encodeURIComponent(id)}`);
 }
 
 export async function listTaskLogs(id: string) {

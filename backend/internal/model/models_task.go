@@ -63,9 +63,11 @@ type Task struct {
 	Attempts          int        `json:"attempts"`
 	StartedAt         *time.Time `json:"startedAt"`
 	CompletedAt       *time.Time `json:"completedAt"`
-	CreatedAt         time.Time  `json:"createdAt" gorm:"index:idx_tasks_user_created,priority:2;index:idx_tasks_status_created,priority:2;index:idx_tasks_claim,priority:3;index:idx_tasks_user_project_created,priority:3"`
-	CreatedAtEpoch    int64      `json:"-" gorm:"index:idx_tasks_created_epoch"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
+	// UserDeletedAt 只把终态任务从用户的作品列表和创作历史中移除；计费、后台统计和产物文件仍引用这一行。
+	UserDeletedAt  *time.Time `json:"-"`
+	CreatedAt      time.Time  `json:"createdAt" gorm:"index:idx_tasks_user_created,priority:2;index:idx_tasks_status_created,priority:2;index:idx_tasks_claim,priority:3;index:idx_tasks_user_project_created,priority:3"`
+	CreatedAtEpoch int64      `json:"-" gorm:"index:idx_tasks_created_epoch"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 func (t *Task) BeforeCreate(tx *gorm.DB) error {

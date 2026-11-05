@@ -32,6 +32,14 @@ func (r *Repository) TaskForUser(userID string, id string) (*model.Task, error) 
 	return &task, nil
 }
 
+// MarkTaskUserDeleted 只标记终态任务；条件写入让并发重试（状态回到排队）时不会把运行中的任务藏起来。
+func (r *Repository) MarkTaskUserDeleted(userID string, id string, at time.Time) (bool, error) {
+	result := r.db.Model(&model.Task{}).
+		Where("id = ? AND user_id = ? AND user_deleted_at IS NULL AND status IN ?", id, userID, []model.TaskStatus{model.TaskStatusSucceeded, model.TaskStatusFailed, model.TaskStatusCancelled}).
+		Update("user_deleted_at", at)
+	return result.RowsAffected == 1, result.Error
+}
+
 func (r *Repository) ActiveTaskCountForUser(userID string) (int64, error) {
 	var count int64
 	err := r.db.Model(&model.Task{}).Where("user_id = ? AND status IN ?", userID, []model.TaskStatus{model.TaskStatusQueued, model.TaskStatusRunning}).Count(&count).Error
@@ -390,7 +398,7 @@ func (r *Repository) TasksWithWorkbenchKind(userID string, limit int, projectID 
 	}
 	// error 必须在列表里：失败卡片依赖它展示原因，漏选会让所有失败都退化成默认文案。
 	query := r.db.Select("id", "project_id", "type", "workbench_kind", "status", "stage", "error", "media_stage", "media_recovery_json", "progress", "prompt", "operation", "provider", "model", "input_json", "result_json", "billing_order_id", "provider_request_id", "provider_cancel_status", "provider_cancel_error", "provider_cancel_attempts", "provider_cancel_requested_at", "provider_cancelled_at", "provider_cancel_next_check_at", "attempts", "started_at", "completed_at", "created_at", "updated_at", "agent_run_id", "generation_id", "approval_id", "authorized_charge_microcredits", "execution_diagnostic_json", "cancellation_source", "cancellation_actor_id", "cancellation_requested_at").
-		Where("user_id = ?", userID)
+		Where("user_id = ? AND user_deleted_at IS NULL", userID)
 	if strings.TrimSpace(projectID) != "" {
 		query = query.Where("project_id = ?", strings.TrimSpace(projectID))
 	}

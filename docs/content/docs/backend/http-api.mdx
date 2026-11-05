@@ -42,6 +42,10 @@ description: 信封、错误码与 OpenAPI
 
 `GET /api/workbench/tasks` 与 `GET /api/tasks` 的列表项对 `metadata.source=workbench` 且批次合法的任务返回 `clientContext.batchId`、`batchIndex`、`batchCount`（`batchIndex` 为 0 时省略）；任务详情的 `inputJson.workbench.batch` 保留同一批次。旧任务没有批次，页面按单任务展示。
 
+## 删除生成任务记录
+
+`DELETE /api/tasks/:id` 无请求体，成功返回 `data={id}`。只能删除当前用户自己的成功、失败或已取消任务；任务不存在或属于他人时返回 404，排队或生成中时返回 400（需先取消），重复删除幂等成功。删除后任务不再出现在 `GET /api/tasks`、`GET /api/workbench/tasks` 和项目任务列表中，`POST /api/tasks/:id/retry` 返回 404。任务行、计费订单和已生成文件仍保留，不退积分，也不释放存储空间。工作台按批次删除时，页面对组内每个任务调用一次该接口。存储只读期间仍允许删除。
+
 ## 图片响应格式
 
 渠道模型的 `capabilityConfig.image.responseFormat` 包含 `supported` 和可选的 `default`。默认值为 `auto`，表示请求中不发送 `response_format`，由上游决定返回 URL 或 Base64；`b64_json` 和 `url` 会分别强制发送对应值。该配置按模型保存，不根据 `openai-image` 协议名称自动推断，避免兼容网关不接受 Base64 时生成失败。需要持久化 Base64 结果的模型（例如已验证的 ddcat 图片模型）应将默认值设为 `b64_json`。

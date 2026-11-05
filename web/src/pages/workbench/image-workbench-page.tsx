@@ -21,7 +21,7 @@ import { resolveBrowserMediaDownloadHref, startBrowserDownload } from "@/service
 import { prepareBackendGenerationTask } from "@/services/api/generation-task";
 import { quoteModel } from "@/services/api/logical-models";
 import { resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
-import { cancelGenerationTask, createGenerationTask, queryGenerationTask, retryGenerationTask, type GenerationTask } from "@/services/api/task-center";
+import { cancelGenerationTask, createGenerationTask, deleteGenerationTask, queryGenerationTask, retryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { capabilitySupportedModes, createWorkbenchTask, listWorkbenchTasks, listWorkbenchTools, resolveWorkbenchResourceURL, type WorkbenchKind, type WorkbenchPromptPreset, type WorkbenchReferenceSlot, type WorkbenchTool } from "@/services/api/workbench";
 import { useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
 import { logicalModelIDForConfig, modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
@@ -396,11 +396,13 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
 
     // ---------- 任务列表轮询 ----------
     const loadFailedRef = useRef(false);
+    // 删除前已发出的轮询可能带回旧列表，本页会话内不再展示已删除的任务。
+    const removedTaskIdsRef = useRef(new Set<string>());
     const loadTasks = useCallback(async () => {
         try {
             const result = await listWorkbenchTasks(kind, 100);
             loadFailedRef.current = false;
-            setTasks(result);
+            setTasks(removedTaskIdsRef.current.size ? result.filter((task) => !removedTaskIdsRef.current.has(task.id)) : result);
             return result;
         } catch (error) {
             if (!loadFailedRef.current) message.error(errorMessage(error, "作品列表加载失败"));
@@ -1115,6 +1117,26 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         }
     };
 
+    const removeBatch = async (batch: GalleryBatch) => {
+        const targets = batch.tasks;
+        targets.forEach((task) => markTaskBusy(task.id, true));
+        const results = await Promise.allSettled(targets.map((task) => deleteGenerationTask(task.id)));
+        targets.forEach((task) => markTaskBusy(task.id, false));
+        const removed = new Set(targets.filter((_, index) => results[index]?.status === "fulfilled").map((task) => task.id));
+        const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (removed.size) {
+            removed.forEach((id) => removedTaskIdsRef.current.add(id));
+            setTasks((current) => current.filter((task) => !removed.has(task.id)));
+            setDetails((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !removed.has(id))));
+            // 本地批次的回执会让已删任务重新出现，或把它们误判成“未提交”可续提，整组本地记录一起丢弃。
+            setLocalBatches((current) => current.filter((item) => item.submitting || (`batch:${item.id}` !== batch.key && !Object.values(item.receipts).some((receipt) => removed.has(receipt.id)))));
+            setViewer((current) => (current?.batchKey === batch.key ? null : current));
+        }
+        if (!failure) message.success(removed.size > 1 ? `已删除这组 ${removed.size} 个任务的作品` : "已删除这组作品");
+        else if (removed.size) message.warning(`已删除 ${removed.size} 个任务，${targets.length - removed.size} 个删除失败：${errorMessage(failure.reason, "删除失败")}`);
+        else message.error(errorMessage(failure.reason, "删除失败"));
+    };
+
     const restoreBatch = async (batch: GalleryBatch, sourceTask?: GenerationTask) => {
         const first = sourceTask || batch.tasks[0];
         if (!first) return;
@@ -1290,6 +1312,17 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             if (indices.length) void runBatchSubmission(local.id, indices);
         },
         dismiss: (batch) => setLocalBatches((current) => current.filter((item) => `batch:${item.id}` !== batch.key || item.submitting)),
+        remove: (batch) => {
+            if (!batch.tasks.length || batch.submitting || batch.tasks.some(isActiveWorkbenchTask)) return;
+            modal.confirm({
+                title: "删除这组作品记录？",
+                content: `这组记录会从作品列表和创作历史中移除，无法恢复。${batch.resumable ? `剩余 ${batch.resumable} 个未提交的任务不再提交。` : ""}已扣积分不退回；已下载或已用到画布、素材库中的内容不受影响。`,
+                okText: "删除",
+                cancelText: "返回",
+                okButtonProps: { danger: true },
+                onOk: () => removeBatch(batch),
+            });
+        },
         visible: (batchKey) =>
             setVisibleBatchKeys((current) => {
                 if (current.has(batchKey)) return current;
@@ -1314,6 +1347,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             retryFailed: (...args) => handlersRef.current!.retryFailed(...args),
             resume: (...args) => handlersRef.current!.resume(...args),
             dismiss: (...args) => handlersRef.current!.dismiss(...args),
+            remove: (...args) => handlersRef.current!.remove(...args),
             visible: (...args) => handlersRef.current!.visible(...args),
             measure: (...args) => handlersRef.current!.measure(...args),
         }),

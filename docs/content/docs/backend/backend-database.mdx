@@ -5,6 +5,10 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 生成任务的用户删除（Schema 79）
+
+版本 79 `task_user_deletion` 为 `tasks` 增加可空的 `user_deleted_at`（时间）。旧任务为 NULL，仍然可见。用户通过 `DELETE /api/tasks/:id` 删除成功、失败或已取消的任务时只写这一列：`GET /api/tasks`、`GET /api/workbench/tasks` 和项目任务列表都会过滤已删除的行，重试接口返回 404。任务行本身、计费订单、调用日志和产物资源都保留，账务核对、后台统计和已用到画布或素材库的文件不受影响，所以删除不会释放存储空间。生成中的任务不能删除，要先取消。
+
 ## Agent 记忆文件列补齐（Schema 77）
 
 版本 77 `agent_memory_document_columns` 只做补列：确保 `agent_memory_documents.next_entry_seq` 与 `agent_memory_document_revisions.call_id` 存在，并把空值回填为 `0` / 空串。开发期的早期构建执行 v76 时这两列还没加入模型，v76 已记为完成、校验和不能再改，缺列会让创建 Agent 轮次时读取记忆文件失败（`no column named next_entry_seq`）。新库由 v76 一次建全，v77 是空操作；不改写既有记忆内容。
@@ -367,6 +371,7 @@ docker compose -f docker-compose.deploy.yml up -d backend web
 | `creation_runs` | 保存创作 Agent 的服务端权威状态、执行租约、已批准提案和画布快照 | `(user_id, client_key)` 唯一；客户端会话只作为输入，修订号、执行 epoch 和租约由 service 强校验，不能据前端状态跳过审批或重复执行 |
 | `creation_submissions` | 保存创作提案中每个生成项的请求、报价签名、审批和任务绑定 | `(run_id, item_key)` 与 `task_id` 分别唯一；相同提交只允许创建一个任务，过期、撤销或提案哈希不一致时拒绝执行 |
 | `tasks.creation_submission_id` | 将生成任务反向绑定到已批准的创作提交 | 字段可空以兼容普通任务和旧数据；非空值唯一，阻止同一提交产生多个任务 |
+| `tasks.user_deleted_at` | 标记用户已从作品列表和创作历史中删除的终态任务 | 只影响用户可见列表和重试；任务行、计费与产物保留，见 Schema 79 |
 | `workflow_template_versions` / `workflow_instances` / `workflow_step_instances` | 保存短剧生产模板和项目、章节实例 | 短剧分镜工作流 v2 顺序为剧情、资产、分镜、动作预演、视频、交付 |
 
 短剧项目状态以这些领域表为准。自由画布可以承载探索节点，但画布 metadata 不作为生产完成度、镜头版本或交付可用性的真相源。
