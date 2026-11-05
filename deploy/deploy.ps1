@@ -97,7 +97,9 @@ function Invoke-RemoteReadOnly {
     '--project-name', $resolvedProjectName,
     '--public-url', $resolvedPublicUrl
   ) | ForEach-Object { Quote-RemoteArgument ([string]$_) }
-  $remoteCommand = "base64 -d | sudo -n python3 - $($remoteArgs -join ' ')"
+  # PS5.1 may wrap piped native stdin in a UTF-8 BOM and CRLF; -i skips those non-alphabet bytes.
+  # Without pipefail a failed decode feeds python3 an empty script and still reports success.
+  $remoteCommand = "set -o pipefail; base64 -d -i | sudo -n python3 - $($remoteArgs -join ' ')"
   $payload | & ssh @sshOptions $target $remoteCommand
   if ($LASTEXITCODE -ne 0) {
     throw ("ssh failed with exit code {0}." -f $LASTEXITCODE)
