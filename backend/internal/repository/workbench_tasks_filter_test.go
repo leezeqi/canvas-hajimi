@@ -9,6 +9,31 @@ import (
 	"yingce/backend/internal/model"
 )
 
+// 工作台失败卡片和任务中心都从列表读取失败原因；列表漏选 error 列时所有失败都会退化成默认文案。
+func TestTasksListIncludesFailureReason(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Task{}); err != nil {
+		t.Fatal(err)
+	}
+	const reason = "模型服务拒绝了请求，请检查模型和参数"
+	if err := db.Create(&model.Task{ID: "failed-image", UserID: "user", Type: "canvas_image", WorkbenchKind: "image", Status: model.TaskStatusFailed, Error: reason, InputJSON: `{}`}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := New(db)
+	for _, kind := range []string{"image", ""} {
+		got, err := repo.TasksWithWorkbenchKind("user", 50, "", false, kind)
+		if err != nil {
+			t.Fatalf("list tasks (kind=%q): %v", kind, err)
+		}
+		if len(got) != 1 || got[0].Error != reason {
+			t.Fatalf("list tasks (kind=%q) = %#v, want failure reason %q", kind, got, reason)
+		}
+	}
+}
+
 func TestTasksWithWorkbenchKindRequiresMatchingTaskType(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

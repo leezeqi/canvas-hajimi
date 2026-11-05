@@ -16,7 +16,14 @@ func TestUserFacingTaskErrorMatchesCanvasNodeClassification(t *testing.T) {
 	for _, tc := range []struct{ name, raw, want string }{
 		{"connection reset", `Post "https://ai.cangyuansuanli.cn/v1/images/generations": read tcp 192.168.1.7:61229->154.12.46.253:443: read: connection reset by peer`, "网络异常。"},
 		{"dial", `dial tcp 10.0.0.1:443: connect: connection refused`, "网络异常。"},
-		{"upstream 500 with reason", "模型服务暂时不可用（HTTP 500）；上游：Upstream gateway error", "模型服务暂时不可用（HTTP 500）"},
+		{"upstream 500 with reason", "模型服务暂时不可用（HTTP 500）；上游：Upstream gateway error", "模型服务暂时不可用（HTTP 500）；上游：Upstream gateway error"},
+		{"upstream parameter reason", "模型服务拒绝了请求，请检查模型和参数；上游：Invalid size '1536x2048'. Supported sizes are 1024x1024, 1024x1536", "模型服务拒绝了请求，请检查模型和参数；上游：Invalid size '1536x2048'. Supported sizes are 1024x1024, 1024x1536"},
+		{"historical upstream json", `模型服务拒绝了请求；上游：{"error":{"message":"duration must be 5 or 10 seconds, see https://docs.example/video"}}`, "模型服务拒绝了请求；上游：duration must be 5 or 10 seconds, see [链接已隐藏]"},
+		{"upstream credential detail hidden", "模型服务鉴权失败，请检查 API Key 和模型权限；上游：Incorrect API key provided: sk-live-abc123", "模型服务鉴权失败，请检查 API Key 和模型权限"},
+		{"upstream billing detail hidden", "模型服务请求过于频繁或额度不足，请稍后重试；上游：You exceeded your current quota", "模型服务请求过于频繁或额度不足，请稍后重试"},
+		{"upstream address only hidden", "模型服务请求失败；上游：https://private.test/v1", "模型服务请求失败"},
+		{"upstream html hidden", "模型服务暂时不可用（HTTP 502）；上游：<html><body>502 Bad Gateway</body></html>", "模型服务暂时不可用（HTTP 502）"},
+		{"upstream without prefix", "；上游：video duration exceeds limit", "video duration exceeds limit"},
 		{"bare 502", "HTTP 502 Bad Gateway", taskErrorUnavailableMessage},
 		{"rate limit", "HTTP 429", "服务当前繁忙，请稍后重试。"},
 		{"auth", "status 401", "生成服务鉴权失败，请检查渠道配置。"},
@@ -33,6 +40,29 @@ func TestUserFacingTaskErrorMatchesCanvasNodeClassification(t *testing.T) {
 				t.Fatalf("got %q want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestUserFacingTaskErrorTruncatesLongUpstreamDetail(t *testing.T) {
+	got := userFacingTaskError("模型服务拒绝了请求；上游：" + strings.Repeat("x", 500))
+	if !strings.HasPrefix(got, "模型服务拒绝了请求；上游：x") || !strings.HasSuffix(got, "...") || len([]rune(got)) > len([]rune("模型服务拒绝了请求；上游："))+userVisibleUpstreamDetailRunes+3 {
+		t.Fatalf("long upstream detail not truncated: %q", got)
+	}
+	masked := userFacingTaskError("任务失败；上游：upstream job task_abc123 rejected")
+	if strings.Contains(masked, "task_abc123") || !strings.Contains(masked, "rejected") {
+		t.Fatalf("upstream task id not masked: %q", masked)
+	}
+}
+
+// Agent 失败卡片只放行中文为主的说明：带英文上游原因时退回中文前缀，不能整条变成"执行中断"。
+func TestCloudAgentUserFailureMessageFallsBackToChinesePrefix(t *testing.T) {
+	message := "模型调用失败：模型服务拒绝了请求；上游：Invalid value for parameter tool_choice: expected one of none, auto, required"
+	if got := cloudAgentUserFailureMessage("run-1", BadAuthRequest(message)); got != "模型调用失败：模型服务拒绝了请求" {
+		t.Fatalf("got %q", got)
+	}
+	readable := "图片生成失败：模型服务拒绝了请求；上游：尺寸不支持"
+	if got := cloudAgentUserFailureMessage("run-1", BadAuthRequest(readable)); got != readable {
+		t.Fatalf("readable upstream reason lost: %q", got)
 	}
 }
 

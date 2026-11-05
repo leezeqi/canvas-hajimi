@@ -8,6 +8,12 @@ const UPSTREAM_URL_PATTERN = /https?:\/\/[^\s<>"'，。；）]+/gi;
 const UPSTREAM_NETWORK_OPERATION_PATTERN = /\b(?:dial|read|write|proxyconnect)\s+tcp\s+\S+/gi;
 const UPSTREAM_IPV4_PATTERN = /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g;
 const USER_VISIBLE_TASK_ID_PATTERN = /\btask[_-][a-z0-9][a-z0-9_-]{2,}\b/gi;
+const TASK_ID_PLACEHOLDER = "[任务标识已隐藏]";
+const UPSTREAM_MARKER = "；上游：";
+const USER_VISIBLE_UPSTREAM_DETAIL_LIMIT = 300;
+// 与后端 providerErrorSensitive 同一套规则：命中凭据、账务、请求标识类诊断的上游原因整条不展示。
+const UPSTREAM_SENSITIVE_PATTERN =
+    /余额|额度|配额|欠费|账单|充值|计费|密钥|密码|令牌|balance|quota|billing|credit|payment|funds|wallet|api[ _-]?key|authorization|bearer|cookie|(?:access|refresh|auth|session)[ _-]?token|token\s*[=:]|secret|password|credential|sk-[a-z0-9]|tenant|trace[ _-]?id|request[ _-]?id|internal stack|stack\s*trace|dial tcp|no such host|prompt\s*[=:]/i;
 
 const DEFAULT_GENERATION_ERROR_MESSAGE = "生成失败，请稍后重试。";
 const NETWORK_ERROR_MESSAGE = "网络异常。";
@@ -68,12 +74,20 @@ export function generationFailureMetadata(error: unknown, prompt: string): Gener
 
 export function generationErrorMessage(error: unknown) {
     const original = rawGenerationError(error);
-    const upstreamIndex = original.indexOf("；上游：");
+    const upstreamIndex = original.indexOf(UPSTREAM_MARKER);
     if (upstreamIndex >= 0) {
         const prefix = original.slice(0, upstreamIndex).trim();
         if (isContentModerationError(prefix)) return CONTENT_MODERATION_MESSAGE;
-        const hint = actionableUpstreamReason(original.slice(upstreamIndex + "；上游：".length));
+        const upstream = original.slice(upstreamIndex + UPSTREAM_MARKER.length);
+        const hint = actionableUpstreamReason(upstream);
         if (hint) return sanitizeUserVisibleError(prefix ? `${prefix}；${hint}` : hint);
+        const detail = userVisibleUpstreamDetail(upstream);
+        if (detail) {
+            // 前缀照常归类（HTTP 状态、结构化 reason），上游原因接在后面，不再被归类文案吞掉。
+            const reason = structuredErrorReason(error);
+            const summary = prefix ? generationErrorMessage(reason ? { message: prefix, reason } : prefix) : "";
+            return summary ? `${summary.replace(/[。.]+$/, "")}${UPSTREAM_MARKER}${detail}` : detail;
+        }
     }
     const raw = sanitizeUserVisibleError(original);
     if (isContentModerationError(raw)) return contentModerationMessage(raw);
@@ -116,7 +130,25 @@ function sanitizeUserVisibleError(value: string) {
     const detail = index >= 0 ? redacted.slice(index + marker.length) : "";
     const actionable = actionableUpstreamReason(detail);
     const result = actionable ? `${prefix}${prefix ? "；" : ""}${actionable}` : prefix;
-    return result.replace(USER_VISIBLE_TASK_ID_PATTERN, "[任务标识已隐藏]");
+    return result.replace(USER_VISIBLE_TASK_ID_PATTERN, TASK_ID_PLACEHOLDER);
+}
+
+// 与后端 userVisibleUpstreamDetail 同一套过滤：JSON 只取错误消息，HTML 和敏感诊断整条丢弃，
+// 地址与任务标识打码；打码后只剩占位符的原因不展示。
+function userVisibleUpstreamDetail(value: string) {
+    let detail = value.trim();
+    if (!detail) return "";
+    try {
+        detail = providerPayloadMessage(JSON.parse(detail));
+    } catch {
+        if (/^[[{]/.test(detail)) return "";
+    }
+    if (!detail || /^[[{]/.test(detail) || /[<>]/.test(detail) || UPSTREAM_SENSITIVE_PATTERN.test(detail)) return "";
+    detail = redactUpstreamAddress(detail).replace(USER_VISIBLE_TASK_ID_PATTERN, TASK_ID_PLACEHOLDER).replace(/\s+/g, " ").trim();
+    const content = detail.split(UPSTREAM_LINK_PLACEHOLDER).join("").split(UPSTREAM_HOST_PLACEHOLDER).join("").split(TASK_ID_PLACEHOLDER).join("");
+    if (!/\p{L}/u.test(content)) return "";
+    const characters = Array.from(detail);
+    return characters.length > USER_VISIBLE_UPSTREAM_DETAIL_LIMIT ? `${characters.slice(0, USER_VISIBLE_UPSTREAM_DETAIL_LIMIT).join("")}...` : detail;
 }
 
 function actionableUpstreamReason(value: string) {

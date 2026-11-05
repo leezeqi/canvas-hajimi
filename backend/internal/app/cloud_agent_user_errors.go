@@ -44,16 +44,23 @@ func classifyUserFacingTaskError(raw string) string {
 	if raw == "" {
 		return taskErrorDefaultMessage
 	}
-	if index := strings.Index(raw, "；上游："); index >= 0 {
+	if index := strings.Index(raw, taskErrorUpstreamMarker); index >= 0 {
 		prefix := strings.TrimSpace(raw[:index])
+		upstream := raw[index+len(taskErrorUpstreamMarker):]
 		if taskErrorIsModeration(prefix) {
 			return taskErrorModerationMessage
 		}
-		if hint := actionableUpstreamReason(raw[index+len("；上游："):]); hint != "" {
+		if hint := actionableUpstreamReason(upstream); hint != "" {
 			if prefix != "" {
 				return prefix + "；" + hint
 			}
 			return hint
+		}
+		if detail := userVisibleUpstreamDetail(upstream); detail != "" {
+			if prefix != "" {
+				return prefix + taskErrorUpstreamMarker + detail
+			}
+			return detail
 		}
 		if prefix != "" {
 			return prefix
@@ -84,7 +91,7 @@ func classifyUserFacingTaskError(raw string) string {
 		return taskErrorNetworkMessage
 	}
 	if providerMessage == "" {
-		if !strings.Contains(display, "；上游：") {
+		if !strings.Contains(display, taskErrorUpstreamMarker) {
 			switch {
 			case taskErrorHasStatus(raw, "429"):
 				return "服务当前繁忙，请稍后重试。"
@@ -139,14 +146,31 @@ func cloudAgentUserFailureMessage(runID string, cause error) string {
 		return "Agent 执行中断，请重新发送消息"
 	}
 	var appErr *AppError
-	if errors.As(cause, &appErr) && appErr != nil && cloudAgentReadableMessage(appErr.Message) {
-		return strings.TrimSpace(appErr.Message)
+	if errors.As(cause, &appErr) && appErr != nil {
+		if message := cloudAgentReadableFailure(appErr.Message); message != "" {
+			return message
+		}
 	}
-	if message := cloudAgentInnermostMessage(cause); cloudAgentReadableMessage(message) {
+	if message := cloudAgentReadableFailure(cloudAgentInnermostMessage(cause)); message != "" {
 		return message
 	}
 	log.Printf("[Agent] internal failure run=%s: %v", runID, cause)
 	return "Agent 执行中断，请重新发送消息；如反复出现，请把诊断号 " + runID + " 反馈给管理员"
+}
+
+// cloudAgentReadableFailure 返回可直接展示的失败说明；带上游原因的说明整体以英文为主时，
+// 退回到我们自己的中文前缀，而不是整条换成通用的"执行中断"。
+func cloudAgentReadableFailure(message string) string {
+	message = strings.TrimSpace(message)
+	if cloudAgentReadableMessage(message) {
+		return message
+	}
+	if index := strings.Index(message, taskErrorUpstreamMarker); index > 0 {
+		if prefix := strings.TrimSpace(message[:index]); cloudAgentReadableMessage(prefix) {
+			return prefix
+		}
+	}
+	return ""
 }
 
 // cloudAgentInnermostMessage 沿包装链找到最内层的错误文字。包装前缀（"load session: "
@@ -203,7 +227,38 @@ func taskErrorStorageMessage(value string) string {
 	return ""
 }
 
-// Only known upstream failure classes become user hints; never echo upstream text.
+const (
+	taskErrorUpstreamMarker = "；上游："
+	// 失败卡片可展开查看，但上游正文可能很长；超出部分只留在后台请求日志。
+	userVisibleUpstreamDetailRunes = 300
+)
+
+var userVisiblePlaceholders = strings.NewReplacer(upstreamAddressLinkPlaceholder, "", upstreamAddressHostPlaceholder, "", "[任务标识已隐藏]", "")
+
+// userVisibleUpstreamDetail 返回可以展示给用户的上游失败原因。
+// 写入时 appendProviderErrorDetail 已经过滤过一次；历史记录可能早于该过滤，读出时按同一规则再过滤：
+// JSON 只取错误消息字段，HTML、凭据、账务、请求标识类诊断整条丢弃，地址和任务标识打码。
+// 打码后只剩占位符的原因没有信息量，不展示。
+func userVisibleUpstreamDetail(value string) string {
+	detail := providerErrorDetail(value)
+	if detail == "" {
+		return ""
+	}
+	detail = sanitizeUserVisibleError(detail)
+	hasContent := false
+	for _, r := range userVisiblePlaceholders.Replace(detail) {
+		if unicode.IsLetter(r) {
+			hasContent = true
+			break
+		}
+	}
+	if !hasContent {
+		return ""
+	}
+	return truncateRunes(detail, userVisibleUpstreamDetailRunes)
+}
+
+// actionableUpstreamReason 把已知的上游失败类别换成可操作的中文提示；其余原因由 userVisibleUpstreamDetail 过滤后展示。
 func actionableUpstreamReason(value string) string {
 	lower := strings.ToLower(value)
 	if strings.Contains(lower, "requires public https reference urls") {
