@@ -72,7 +72,7 @@ export function generationFailureMetadata(error: unknown, prompt: string): Gener
     };
 }
 
-export function generationErrorMessage(error: unknown) {
+export function generationErrorMessage(error: unknown): string {
     const original = rawGenerationError(error);
     const upstreamIndex = original.indexOf(UPSTREAM_MARKER);
     if (upstreamIndex >= 0) {
