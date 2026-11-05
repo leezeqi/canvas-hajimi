@@ -221,10 +221,8 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 	if strings.TrimSpace(input.Config.BaseURL) == "" || strings.TrimSpace(input.Config.APIKey) == "" || strings.TrimSpace(input.Config.Model) == "" {
 		return nil, errors.New("后端生成任务缺少 Base URL、API Key 或模型名")
 	}
-	if isAdminOnlyPlugin(input.Config.InterfaceType) {
-		if err := s.RequirePluginForUser(userID, input.Config.InterfaceType); err != nil {
-			return nil, err
-		}
+	if err := s.requireProviderProtocolPlugin(userID, input.Config); err != nil {
+		return nil, err
 	}
 	if err := s.validateGenerationInterface(input.Mode, input.Config.InterfaceType); err != nil {
 		return nil, err

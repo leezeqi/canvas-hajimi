@@ -382,6 +382,25 @@ func (s *Service) RequirePluginForUser(userID string, pluginID string) error {
 			return Forbidden("该插件仅管理员可用")
 		}
 	}
+	return s.requirePluginEffectiveForUser(userID, pluginID)
+}
+
+// requireProviderProtocolPlugin 校验生成任务所用协议对应的仅管理员可见插件，config 必须已经过
+// resolveProviderConfig。“仅管理员可见”只对普通用户隐藏插件，不禁止调用管理员配好的系统渠道：
+// 系统渠道的协议由 resolveProviderConfig 按渠道模型覆盖，客户端无法指定，因此只要求插件仍由平台启用；
+// 自定义渠道的协议来自客户端，仍按用户角色拦截，避免绕过界面直接使用隐藏插件。
+func (s *Service) requireProviderProtocolPlugin(userID string, config providerConfig) error {
+	pluginID := strings.TrimSpace(config.InterfaceType)
+	if !isAdminOnlyPlugin(pluginID) {
+		return nil
+	}
+	if strings.TrimSpace(config.ChannelID) != "" {
+		return s.requirePluginEffectiveForUser(userID, pluginID)
+	}
+	return s.RequirePluginForUser(userID, pluginID)
+}
+
+func (s *Service) requirePluginEffectiveForUser(userID string, pluginID string) error {
 	state, err := s.pluginStateForUser(&model.User{ID: strings.TrimSpace(userID)}, pluginID, s.Plugins())
 	if err != nil {
 		return err
