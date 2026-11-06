@@ -5,6 +5,15 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## Navivo NewAPI 视频协议
+
+- 已实现：独立 `navivo-video` 声明式插件（Provider `navivo-video`，默认 Base URL `https://db.navivo.cc`，不带 `/v1`），`POST /v1/videos` 只发 JSON。dola-seedance 系列发送 `model`、`prompt`、`aspect_ratio`、`images`（URL 字符串数组），不发时长；模型名去空格转小写后包含 `sd933` 时按 SD 933 格式额外发送数字 `duration`，`images`、`videos`、`audios` 均为 `[{url}]`。空值省略。
+- 已实现：声明 `requiresPublicMediaUrls` 与 `detachedPolling`；提交前校验提示词非空、画幅枚举（1:1、3:4、4:3、9:16、16:9、21:9），非 SD 933 模型带参考视频或音频直接拒绝。查询 `GET /v1/videos/{id}`，成功后依次取 `url`、`video_url`、`result_url`、`metadata.url`，都没有时走 `/v1/videos/{id}/content` 带 Key 下载。
+- 已验证：协议单测覆盖两种请求体、排序、默认省略、校验拦截、状态与结果映射；`internal/protocol` 全包通过。未用真实 Key 联调。
+- [ ] 真实渠道：`dola-seedance-20-fast-text-video` 文生视频与图生视频各一次，`dola-seedance-25-text-video` 一次，确认 `aspect_ratio` 生效、建单、轮询和成片持久化。
+- [ ] `sd 933` 带图片、视频、音频混合参考生成一次，确认 `duration` 与对象数组被上游接受；确认宿主签名素材地址可被上游直接拉取。
+- [ ] 确认完成响应实际返回的视频字段名，以及无直链时 `/content` 的重定向下载可用。
+
 ## 9Y API 视频协议
 
 - 已实现：独立 `nineyapi-video` 声明式插件（Provider `nineyapi-video`，默认 Base URL `https://9yapi.shop`），覆盖 SD-2.0 / 2.5 系列、`【官转】Minimax-H3`、wan3.0 特惠版和 sd2.0-fast。`POST /v1/videos` 发 JSON：`model`、`prompt`、整数 `seconds`、小写 `resolution`、`aspect_ratio`、`generate_audio`（仅 true 时下发），参考素材为 `reference_images: [{url, role}]`、`reference_videos: [{url}]`、`reference_audios: [{url}]`，空值省略。
