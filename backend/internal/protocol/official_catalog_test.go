@@ -616,6 +616,146 @@ func TestOfficialMaxForAIVideoProfilesUseDocumentedFields(t *testing.T) {
 	}
 }
 
+func TestOfficialSD25PPVideoUsesReferencesContract(t *testing.T) {
+	adapter := officialPackageAdapter(t, "sd25pp-video.yingce-plugin", "sd25pp-videos")
+	if metadata := adapter.Metadata(); !metadata.RequiresPublicMediaURLs || !metadata.IdempotentCreate {
+		t.Fatalf("metadata = %#v, want public media URLs and idempotent create", metadata)
+	}
+	request := GenerationRequest{
+		Model: "sd2.5pp", Prompt: "木桌上的红球缓慢旋转，镜头推近", Duration: 30,
+		AspectRatio: "9:16", Resolution: "1080P",
+		Images: []MediaReference{
+			{URL: "https://cdn.example/scene.png", Order: 2, Role: "reference_image", Name: "scene"},
+			{URL: "https://cdn.example/person.png", Order: 1, Role: "first_frame"},
+		},
+		Videos: []MediaReference{{URL: "https://cdn.example/motion.mp4", Order: 1}},
+		Audios: []MediaReference{{URL: "https://cdn.example/voice.mp3", Order: 1}},
+		Extra:  map[string]any{"idempotencyKey": "request-sd25pp-1"},
+	}
+	create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if create.Method != "POST" || create.Path != "/v1/videos" || create.ContentType != "application/json" || create.Headers["Idempotency-Key"] != "request-sd25pp-1" || create.Auth.Type != "bearer" {
+		t.Fatalf("create spec = %#v", create)
+	}
+	body := manifestTestBody(t, create)
+	if body["model"] != "sd2.5pp" || body["prompt"] != request.Prompt || body["seconds"] != float64(30) || body["resolution"] != "1080p" || body["aspect_ratio"] != "9:16" || body["mode"] != "omni_reference" {
+		t.Fatalf("request body = %#v", body)
+	}
+	references, ok := body["references"].([]any)
+	if !ok {
+		t.Fatalf("references = %#v", body["references"])
+	}
+	want := []map[string]any{
+		{"kind": "image", "data": "https://cdn.example/person.png"},
+		{"kind": "image", "data": "https://cdn.example/scene.png"},
+		{"kind": "video", "data": "https://cdn.example/motion.mp4"},
+		{"kind": "audio", "data": "https://cdn.example/voice.mp3"},
+	}
+	if len(references) != len(want) {
+		t.Fatalf("references = %#v, want %#v", references, want)
+	}
+	for index, expected := range want {
+		item, ok := references[index].(map[string]any)
+		// 上游拒收 kind/data 以外的键，宿主的 role、name 等字段不能泄漏。
+		if !ok || len(item) != 2 || item["kind"] != expected["kind"] || item["data"] != expected["data"] {
+			t.Errorf("references[%d] = %#v, want %#v", index, references[index], expected)
+		}
+	}
+	for _, forbidden := range []string{"duration", "ratio", "size", "images", "videos", "audios", "generate_audio", "input_reference"} {
+		if _, exists := body[forbidden]; exists {
+			t.Errorf("request contains unsupported field %q: %#v", forbidden, body)
+		}
+	}
+
+	defaults := request
+	defaults.Duration, defaults.AspectRatio, defaults.Resolution = 0, "", ""
+	defaultSpec, err := adapter.BuildCreate(context.Background(), RequestContext{Request: defaults})
+	if err != nil {
+		t.Fatalf("omitted duration, ratio and resolution should be accepted: %v", err)
+	}
+	defaultBody := manifestTestBody(t, defaultSpec)
+	if defaultBody["seconds"] != float64(5) {
+		t.Fatalf("default seconds = %#v, want 5", defaultBody["seconds"])
+	}
+	for _, omitted := range []string{"resolution", "aspect_ratio"} {
+		if _, exists := defaultBody[omitted]; exists {
+			t.Errorf("empty %s should be omitted: %#v", omitted, defaultBody)
+		}
+	}
+	videoOnly := request
+	videoOnly.Images, videoOnly.Audios = nil, nil
+	if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: videoOnly}); err != nil {
+		t.Fatalf("a single reference video should be accepted: %v", err)
+	}
+
+	rejected := map[string]func(*GenerationRequest){
+		"duration below 5":   func(r *GenerationRequest) { r.Duration = 4 },
+		"duration above 30":  func(r *GenerationRequest) { r.Duration = 31 },
+		"audio only":         func(r *GenerationRequest) { r.Images, r.Videos = nil, nil },
+		"more than 30 image": func(r *GenerationRequest) { r.Images = make([]MediaReference, 31) },
+		"more than 10 video": func(r *GenerationRequest) { r.Videos = make([]MediaReference, 11) },
+		"more than 10 audio": func(r *GenerationRequest) { r.Audios = make([]MediaReference, 11) },
+		"4k resolution":      func(r *GenerationRequest) { r.Resolution = "4k" },
+		"adaptive ratio":     func(r *GenerationRequest) { r.AspectRatio = "adaptive" },
+	}
+	for name, mutate := range rejected {
+		invalid := request
+		mutate(&invalid)
+		if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: invalid}); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+
+	poll, err := adapter.BuildPoll(context.Background(), PollContext{Request: request, TaskID: "task-sd25pp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if poll.Method != "GET" || poll.Path != "/v1/videos/task-sd25pp" {
+		t.Fatalf("poll spec = %#v", poll)
+	}
+	states := []struct {
+		payload, stage, message string
+		status                  Status
+	}{
+		{payload: `{"id":"task-sd25pp","status":"queued"}`, status: StatusPending, stage: "排队中"},
+		{payload: `{"id":"task-sd25pp","status":"in_progress","progress":45}`, status: StatusProcessing, stage: "生成中 45%"},
+		{payload: `{"id":"task-sd25pp","status":"completed","progress":100}`, status: StatusSucceeded},
+		{payload: `{"id":"task-sd25pp","status":"failed","error":"图片无法识别"}`, status: StatusFailed, message: "图片无法识别"},
+		{payload: `{"id":"task-sd25pp","status":"failed","error":{"message":"上游繁忙"}}`, status: StatusFailed, message: "上游繁忙"},
+	}
+	for _, test := range states {
+		state, err := adapter.ParsePoll(context.Background(), PollContext{Request: request, TaskID: "task-sd25pp"}, []byte(test.payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.TaskID != "task-sd25pp" || state.Status != test.status || state.Stage != test.stage || state.Message != test.message {
+			t.Errorf("poll %s = %#v", test.payload, state)
+		}
+		// 成片只能通过鉴权的 /content 下载，查询响应不能产出媒体结果。
+		if state.Result != nil {
+			t.Errorf("poll %s produced media without the result download: %#v", test.payload, state.Result)
+		}
+	}
+
+	capability, ok := adapter.(ResultCapability)
+	if !ok || !capability.ResultAvailable() {
+		t.Fatal("SD2.5PP result download is unavailable")
+	}
+	resultAdapter, ok := adapter.(ResultAdapter)
+	if !ok {
+		t.Fatal("SD2.5PP does not implement ResultAdapter")
+	}
+	result, err := resultAdapter.BuildResult(context.Background(), PollContext{Model: "sd2.5pp", Request: request, TaskID: "task-sd25pp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Method != "GET" || result.Path != "/v1/videos/task-sd25pp/content" || result.Headers["Accept"] != "video/mp4" || result.Auth.Type != "bearer" {
+		t.Fatalf("result request = %#v", result)
+	}
+}
+
 func TestOfficialOpenAIVideosDeclaresAuthenticatedResultDownload(t *testing.T) {
 	adapter := officialPackageAdapter(t, "openai-videos.yingce-plugin", "newapi")
 	capability, ok := adapter.(ResultCapability)

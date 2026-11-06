@@ -1,0 +1,493 @@
+{
+  "apiVersion": "yingce.plugin/v2",
+  "id": "sd25pp-video",
+  "name": "SD2.5PP 全能参考视频",
+  "version": "1.0.0",
+  "author": "影策",
+  "description": "sd2.5pp 视频通道：JSON 创建 /v1/videos，references 全能参考素材，成片走 /content 鉴权下载。",
+  "documentation": "# SD2.5PP 全能参考视频\n\n该目录是独立官方协议插件源码，对接在售视频通道 `sd2.5pp`：一次请求生成一条 5–30 秒视频，参考素材统一放进 `references` 数组。后端从生成的 `sd25pp-video.yingce-plugin` 包加载，不依赖系统内置 `host:` 适配器。\n\n插件声明 `requiresPublicMediaUrls`：宿主先把站内素材换成签名 URL 再提交，内嵌数据会被拒绝；上游必须能从公网访问这些地址。本插件不负责图床上传。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n\n---\n\n# SD2.5PP 视频接口字段\n\n## 协议身份\n\n- 插件 ID：`sd25pp-video`。\n- Provider ID：`sd25pp-videos`。\n- 能力：`video`。\n- 默认 Base URL：无，渠道里填写站点域名，末尾不要带 `/v1`（接口路径已包含 `/v1`）。\n- 鉴权：`Authorization: Bearer <apiKey>`，只使用站点令牌（`sk-` 开头）。\n- 创建：`POST /v1/videos`（`application/json`）。\n- 查询：`GET /v1/videos/{task_id}`。\n- 下载：`GET /v1/videos/{task_id}/content`，带同一个 Bearer 令牌。\n- 取消：上游未提供，插件不声明取消操作。\n\n## 请求字段\n\n| 字段 | 类型 | 必填 | 来源 | 说明 |\n| --- | --- | --- | --- | --- |\n| `model` | string | 是 | `request.model` | 本通道只有 `sd2.5pp`。 |\n| `prompt` | string | 是 | `request.prompt` | 最长 20000 字；`@图片1` 只是普通文字，上游不会替换。 |\n| `seconds` | integer | 是 | `request.duration` | 5–30 的整数；宿主未传时长时发送 `5`。 |\n| `resolution` | string | 否 | `request.resolution` | `720p` 或 `1080p`，统一转小写；为空时省略，上游默认 `720p`。 |\n| `aspect_ratio` | string | 否 | `request.aspectRatio` | `16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9`；为空时省略，上游默认 `16:9`。 |\n| `mode` | string | 否 | 固定值 | 始终发送 `omni_reference`。 |\n| `references` | object[] | 是 | 图片、视频、音频 | 依次拼接图片、视频、音频，每类内部按 `order` 排序。 |\n\n`references` 每一项只发送两个键：\n\n| 键 | 取值 |\n| --- | --- |\n| `kind` | `image`、`video` 或 `audio`，由素材所在数组决定。 |\n| `data` | 素材的公网 HTTPS URL。插件声明 `requiresPublicMediaUrls`，宿主把站内资源换成签名 URL，内嵌 data URL 会在提交前被拒绝。 |\n\n上游拒收多余的键，所以插件不发送 `role`、`name` 等宿主字段，也不发送 `duration`、`ratio`、`images`、`size`、`generate_audio` 等其他协议字段。\n\n创建请求带 `Idempotency-Key`，值取宿主为本次提交生成的幂等键。插件声明 `idempotentCreate`：遇到 429、5xx 或网络中断时，宿主用同一个键和同一份请求体重试，上游按幂等键返回同一条任务，不会重复建单和扣费。400 / 422（含当日额度售罄）不重试。\n\n## 提交前校验\n\n| 规则 | 提示 |\n| --- | --- |\n| 提示词不超过 20000 字 | SD2.5PP 提示词最长 20000 字 |\n| 时长为 0（使用默认 5 秒）或 5–30 | SD2.5PP 视频时长必须是 5–30 秒的整数 |\n| 图片数 + 视频数 ≥ 1 | SD2.5PP 至少需要 1 张参考图片或 1 个参考视频，只有音频不能生成 |\n| 图片 ≤ 30、视频 ≤ 10、音频 ≤ 10 | 对应数量上限提示 |\n| 画幅为空或在支持列表内 | SD2.5PP 画幅只支持 16:9、9:16、1:1、4:3、3:4、21:9 |\n| 分辨率为空或为 720p / 1080p | SD2.5PP 分辨率只支持 720p 和 1080p |\n\n素材 URL 必须能被上游从公网访问：本机、内网或需要登录的地址会被上游以 400 拒收，所以部署需要对外可访问的 HTTPS 资源地址。\n\n单个素材的大小、格式和时长（参考视频 / 音频 2–15 秒、音频合计不超过 15 秒）宿主拿不到可靠信息，由上游校验；超限时上游返回 400 并指出是第几个参考素材。\n\n## 查询与结果\n\n| 上游状态 | 宿主状态 | 进度文案 |\n| --- | --- | --- |\n| `queued` | 等待 | 排队中 |\n| `in_progress` | 处理中 | 生成中 `progress`% |\n| `completed` | 成功 | — |\n| `failed` | 失败 | — |\n\n失败原因依次取 `error.message`、`error`（字符串）、`message`、`fail_reason`。上游只返回中文说明，不返回内部错误代码。\n\n查询响应不映射视频地址。任务成功后，宿主调用 `GET /v1/videos/{task_id}/content` 带令牌下载成片并持久化。参考耗时：5 秒约 1–2 分钟，15 秒约 3–5 分钟，30 秒约 5–8 分钟；进度超过 90% 后变慢属于正常合成阶段。\n\n## 计费参考\n\n按条计费，与分辨率无关：5–15 秒每条 4 元，16–30 秒每条 6 元。提交时预扣，失败自动全额退回。售罄时上游在建单前直接返回 400，不扣费。\n\n## 兼容边界\n\n该插件只实现 `sd2.5pp` 通道的 `/v1/videos` 合同。OpenAI Videos、MaxForAI 等同路径但字段不同的协议保持各自插件，不根据模型名猜测。\n\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整接口定义\n\n以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。\n\n```json\n{\n  \"apiVersion\": \"yingce.plugin/v2\",\n  \"id\": \"sd25pp-video\",\n  \"name\": \"SD2.5PP 全能参考视频\",\n  \"version\": \"1.0.0\",\n  \"author\": \"影策\",\n  \"description\": \"sd2.5pp 视频通道：JSON 创建 /v1/videos，references 全能参考素材，成片走 /content 鉴权下载。\",\n  \"documentation\": \"<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>\",\n  \"permissions\": [\n    \"generation.run\",\n    \"media.read\"\n  ],\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"apiKey\",\n        \"type\": \"secret\",\n        \"label\": \"API Key\",\n        \"required\": true\n      }\n    ]\n  },\n  \"contributes\": {\n    \"providers\": [\n      {\n        \"id\": \"sd25pp-videos\",\n        \"label\": \"SD2.5PP Videos\",\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"baseUrl\": \"\",\n        \"requiresPublicMediaUrls\": true,\n        \"idempotentCreate\": true,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"上游模型名，本通道固定为 sd2.5pp。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频提示词，最长 20000 字；@图片1 之类的写法只作为普通文字发送。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"mapping\": \"references[kind=image]\",\n            \"description\": \"参考图片，最多 30 张，公网 HTTPS URL；PNG / JPEG / WebP，单张不超过 10 MiB。\"\n          },\n          {\n            \"name\": \"videos\",\n            \"type\": \"media[]\",\n            \"mapping\": \"references[kind=video]\",\n            \"description\": \"参考视频，最多 10 个，公网 HTTPS URL；MP4 / WebM，单个 2–15 秒、不超过 100 MiB。\"\n          },\n          {\n            \"name\": \"audios\",\n            \"type\": \"media[]\",\n            \"mapping\": \"references[kind=audio]\",\n            \"description\": \"参考音频，最多 10 个，公网 HTTPS URL；MP3 / WAV / OGG / M4A，单个 2–15 秒，合计不超过 15 秒。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"mapping\": \"seconds\",\n            \"description\": \"生成时长 5–30 秒整数；未指定时发送 5。5–15 秒与 16–30 秒分档计费。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"values\": [\n              \"16:9\",\n              \"9:16\",\n              \"1:1\",\n              \"4:3\",\n              \"3:4\",\n              \"21:9\"\n            ],\n            \"mapping\": \"aspect_ratio\",\n            \"description\": \"画幅比例，未指定时由上游默认 16:9；不支持自适应。\"\n          },\n          {\n            \"name\": \"resolution\",\n            \"type\": \"string\",\n            \"values\": [\n              \"720p\",\n              \"1080p\"\n            ],\n            \"mapping\": \"resolution\",\n            \"description\": \"分辨率，未指定时由上游默认 720p；不支持 4K 与自适应。\"\n          }\n        ],\n        \"validations\": [\n          {\n            \"assert\": {\n              \"$lte\": [\n                {\n                  \"$len\": {\n                    \"$ref\": \"request.prompt\"\n                  }\n                },\n                20000\n              ]\n            },\n            \"message\": \"SD2.5PP 提示词最长 20000 字\"\n          },\n          {\n            \"assert\": {\n              \"$or\": [\n                {\n                  \"$eq\": [\n                    {\n                      \"$ref\": \"request.duration\"\n                    },\n                    0\n                  ]\n                },\n                {\n                  \"$and\": [\n                    {\n                      \"$gte\": [\n                        {\n                          \"$ref\": \"request.duration\"\n                        },\n                        5\n                      ]\n                    },\n                    {\n                      \"$lte\": [\n                        {\n                          \"$ref\": \"request.duration\"\n                        },\n                        30\n                      ]\n                    }\n                  ]\n                }\n              ]\n            },\n            \"message\": \"SD2.5PP 视频时长必须是 5–30 秒的整数\"\n          },\n          {\n            \"assert\": {\n              \"$gt\": [\n                {\n                  \"$add\": [\n                    {\n                      \"$len\": {\n                        \"$ref\": \"request.images\"\n                      }\n                    },\n                    {\n                      \"$len\": {\n                        \"$ref\": \"request.videos\"\n                      }\n                    }\n                  ]\n                },\n                0\n              ]\n            },\n            \"message\": \"SD2.5PP 至少需要 1 张参考图片或 1 个参考视频，只有音频不能生成\"\n          },\n          {\n            \"assert\": {\n              \"$lte\": [\n                {\n                  \"$len\": {\n                    \"$ref\": \"request.images\"\n                  }\n                },\n                30\n              ]\n            },\n            \"message\": \"SD2.5PP 最多支持 30 张参考图片\"\n          },\n          {\n            \"assert\": {\n              \"$lte\": [\n                {\n                  \"$len\": {\n                    \"$ref\": \"request.videos\"\n                  }\n                },\n                10\n              ]\n            },\n            \"message\": \"SD2.5PP 最多支持 10 个参考视频\"\n          },\n          {\n            \"assert\": {\n              \"$lte\": [\n                {\n                  \"$len\": {\n                    \"$ref\": \"request.audios\"\n                  }\n                },\n                10\n              ]\n            },\n            \"message\": \"SD2.5PP 最多支持 10 个参考音频\"\n          },\n          {\n            \"assert\": {\n              \"$or\": [\n                {\n                  \"$eq\": [\n                    {\n                      \"$trim\": {\n                        \"$ref\": \"request.aspectRatio\"\n                      }\n                    },\n                    \"\"\n                  ]\n                },\n                {\n                  \"$in\": [\n                    {\n                      \"$trim\": {\n                        \"$ref\": \"request.aspectRatio\"\n                      }\n                    },\n                    [\n                      \"16:9\",\n                      \"9:16\",\n                      \"1:1\",\n                      \"4:3\",\n                      \"3:4\",\n                      \"21:9\"\n                    ]\n                  ]\n                }\n              ]\n            },\n            \"message\": \"SD2.5PP 画幅只支持 16:9、9:16、1:1、4:3、3:4、21:9\"\n          },\n          {\n            \"assert\": {\n              \"$or\": [\n                {\n                  \"$eq\": [\n                    {\n                      \"$trim\": {\n                        \"$ref\": \"request.resolution\"\n                      }\n                    },\n                    \"\"\n                  ]\n                },\n                {\n                  \"$in\": [\n                    {\n                      \"$lower\": {\n                        \"$trim\": {\n                          \"$ref\": \"request.resolution\"\n                        }\n                      }\n                    },\n                    [\n                      \"720p\",\n                      \"1080p\"\n                    ]\n                  ]\n                }\n              ]\n            },\n            \"message\": \"SD2.5PP 分辨率只支持 720p 和 1080p\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos\",\n          \"contentType\": \"application/json\",\n          \"headers\": {\n            \"Idempotency-Key\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.extra.idempotencyKey\"\n              }\n            }\n          },\n          \"body\": {\n            \"model\": {\n              \"$ref\": \"request.model\"\n            },\n            \"prompt\": {\n              \"$ref\": \"request.prompt\"\n            },\n            \"seconds\": {\n              \"$if\": {\n                \"condition\": {\n                  \"$gt\": [\n                    {\n                      \"$ref\": \"request.duration\"\n                    },\n                    0\n                  ]\n                },\n                \"then\": {\n                  \"$ref\": \"request.duration\"\n                },\n                \"else\": 5\n              }\n            },\n            \"resolution\": {\n              \"$omitEmpty\": {\n                \"$lower\": {\n                  \"$trim\": {\n                    \"$ref\": \"request.resolution\"\n                  }\n                }\n              }\n            },\n            \"aspect_ratio\": {\n              \"$omitEmpty\": {\n                \"$trim\": {\n                  \"$ref\": \"request.aspectRatio\"\n                }\n              }\n            },\n            \"mode\": \"omni_reference\",\n            \"references\": {\n              \"$concatArrays\": [\n                {\n                  \"$map\": {\n                    \"from\": {\n                      \"$sortByOrder\": {\n                        \"$ref\": \"request.images\"\n                      }\n                    },\n                    \"as\": \"media\",\n                    \"in\": {\n                      \"kind\": \"image\",\n                      \"data\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                {\n                  \"$map\": {\n                    \"from\": {\n                      \"$sortByOrder\": {\n                        \"$ref\": \"request.videos\"\n                      }\n                    },\n                    \"as\": \"media\",\n                    \"in\": {\n                      \"kind\": \"video\",\n                      \"data\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                {\n                  \"$map\": {\n                    \"from\": {\n                      \"$sortByOrder\": {\n                        \"$ref\": \"request.audios\"\n                      }\n                    },\n                    \"as\": \"media\",\n                    \"in\": {\n                      \"kind\": \"audio\",\n                      \"data\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                }\n              ]\n            }\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/videos/{{taskId}}\",\n          \"contentType\": \"application/json\"\n        },\n        \"result\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/videos/{{taskId}}/content\",\n          \"headers\": {\n            \"Accept\": \"video/mp4\"\n          }\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.error\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"stage\": {\n            \"$switch\": {\n              \"cases\": [\n                {\n                  \"when\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"queued\"\n                    ]\n                  },\n                  \"then\": \"排队中\"\n                },\n                {\n                  \"when\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"in_progress\"\n                    ]\n                  },\n                  \"then\": {\n                    \"$concat\": [\n                      \"生成中 \",\n                      {\n                        \"$coalesce\": [\n                          {\n                            \"$ref\": \"response.progress\"\n                          },\n                          0\n                        ]\n                      },\n                      \"%\"\n                    ]\n                  }\n                }\n              ],\n              \"default\": null\n            }\n          }\n        }\n      }\n    ]\n  }\n}\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "API Key",
+        "required": true
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "id": "sd25pp-videos",
+        "label": "SD2.5PP Videos",
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "baseUrl": "",
+        "requiresPublicMediaUrls": true,
+        "idempotentCreate": true,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "上游模型名，本通道固定为 sd2.5pp。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频提示词，最长 20000 字；@图片1 之类的写法只作为普通文字发送。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "mapping": "references[kind=image]",
+            "description": "参考图片，最多 30 张，公网 HTTPS URL；PNG / JPEG / WebP，单张不超过 10 MiB。"
+          },
+          {
+            "name": "videos",
+            "type": "media[]",
+            "mapping": "references[kind=video]",
+            "description": "参考视频，最多 10 个，公网 HTTPS URL；MP4 / WebM，单个 2–15 秒、不超过 100 MiB。"
+          },
+          {
+            "name": "audios",
+            "type": "media[]",
+            "mapping": "references[kind=audio]",
+            "description": "参考音频，最多 10 个，公网 HTTPS URL；MP3 / WAV / OGG / M4A，单个 2–15 秒，合计不超过 15 秒。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "mapping": "seconds",
+            "description": "生成时长 5–30 秒整数；未指定时发送 5。5–15 秒与 16–30 秒分档计费。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "values": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "mapping": "aspect_ratio",
+            "description": "画幅比例，未指定时由上游默认 16:9；不支持自适应。"
+          },
+          {
+            "name": "resolution",
+            "type": "string",
+            "values": [
+              "720p",
+              "1080p"
+            ],
+            "mapping": "resolution",
+            "description": "分辨率，未指定时由上游默认 720p；不支持 4K 与自适应。"
+          }
+        ],
+        "validations": [
+          {
+            "assert": {
+              "$lte": [
+                {
+                  "$len": {
+                    "$ref": "request.prompt"
+                  }
+                },
+                20000
+              ]
+            },
+            "message": "SD2.5PP 提示词最长 20000 字"
+          },
+          {
+            "assert": {
+              "$or": [
+                {
+                  "$eq": [
+                    {
+                      "$ref": "request.duration"
+                    },
+                    0
+                  ]
+                },
+                {
+                  "$and": [
+                    {
+                      "$gte": [
+                        {
+                          "$ref": "request.duration"
+                        },
+                        5
+                      ]
+                    },
+                    {
+                      "$lte": [
+                        {
+                          "$ref": "request.duration"
+                        },
+                        30
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "message": "SD2.5PP 视频时长必须是 5–30 秒的整数"
+          },
+          {
+            "assert": {
+              "$gt": [
+                {
+                  "$add": [
+                    {
+                      "$len": {
+                        "$ref": "request.images"
+                      }
+                    },
+                    {
+                      "$len": {
+                        "$ref": "request.videos"
+                      }
+                    }
+                  ]
+                },
+                0
+              ]
+            },
+            "message": "SD2.5PP 至少需要 1 张参考图片或 1 个参考视频，只有音频不能生成"
+          },
+          {
+            "assert": {
+              "$lte": [
+                {
+                  "$len": {
+                    "$ref": "request.images"
+                  }
+                },
+                30
+              ]
+            },
+            "message": "SD2.5PP 最多支持 30 张参考图片"
+          },
+          {
+            "assert": {
+              "$lte": [
+                {
+                  "$len": {
+                    "$ref": "request.videos"
+                  }
+                },
+                10
+              ]
+            },
+            "message": "SD2.5PP 最多支持 10 个参考视频"
+          },
+          {
+            "assert": {
+              "$lte": [
+                {
+                  "$len": {
+                    "$ref": "request.audios"
+                  }
+                },
+                10
+              ]
+            },
+            "message": "SD2.5PP 最多支持 10 个参考音频"
+          },
+          {
+            "assert": {
+              "$or": [
+                {
+                  "$eq": [
+                    {
+                      "$trim": {
+                        "$ref": "request.aspectRatio"
+                      }
+                    },
+                    ""
+                  ]
+                },
+                {
+                  "$in": [
+                    {
+                      "$trim": {
+                        "$ref": "request.aspectRatio"
+                      }
+                    },
+                    [
+                      "16:9",
+                      "9:16",
+                      "1:1",
+                      "4:3",
+                      "3:4",
+                      "21:9"
+                    ]
+                  ]
+                }
+              ]
+            },
+            "message": "SD2.5PP 画幅只支持 16:9、9:16、1:1、4:3、3:4、21:9"
+          },
+          {
+            "assert": {
+              "$or": [
+                {
+                  "$eq": [
+                    {
+                      "$trim": {
+                        "$ref": "request.resolution"
+                      }
+                    },
+                    ""
+                  ]
+                },
+                {
+                  "$in": [
+                    {
+                      "$lower": {
+                        "$trim": {
+                          "$ref": "request.resolution"
+                        }
+                      }
+                    },
+                    [
+                      "720p",
+                      "1080p"
+                    ]
+                  ]
+                }
+              ]
+            },
+            "message": "SD2.5PP 分辨率只支持 720p 和 1080p"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos",
+          "contentType": "application/json",
+          "headers": {
+            "Idempotency-Key": {
+              "$omitEmpty": {
+                "$ref": "request.extra.idempotencyKey"
+              }
+            }
+          },
+          "body": {
+            "model": {
+              "$ref": "request.model"
+            },
+            "prompt": {
+              "$ref": "request.prompt"
+            },
+            "seconds": {
+              "$if": {
+                "condition": {
+                  "$gt": [
+                    {
+                      "$ref": "request.duration"
+                    },
+                    0
+                  ]
+                },
+                "then": {
+                  "$ref": "request.duration"
+                },
+                "else": 5
+              }
+            },
+            "resolution": {
+              "$omitEmpty": {
+                "$lower": {
+                  "$trim": {
+                    "$ref": "request.resolution"
+                  }
+                }
+              }
+            },
+            "aspect_ratio": {
+              "$omitEmpty": {
+                "$trim": {
+                  "$ref": "request.aspectRatio"
+                }
+              }
+            },
+            "mode": "omni_reference",
+            "references": {
+              "$concatArrays": [
+                {
+                  "$map": {
+                    "from": {
+                      "$sortByOrder": {
+                        "$ref": "request.images"
+                      }
+                    },
+                    "as": "media",
+                    "in": {
+                      "kind": "image",
+                      "data": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                {
+                  "$map": {
+                    "from": {
+                      "$sortByOrder": {
+                        "$ref": "request.videos"
+                      }
+                    },
+                    "as": "media",
+                    "in": {
+                      "kind": "video",
+                      "data": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                {
+                  "$map": {
+                    "from": {
+                      "$sortByOrder": {
+                        "$ref": "request.audios"
+                      }
+                    },
+                    "as": "media",
+                    "in": {
+                      "kind": "audio",
+                      "data": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/videos/{{taskId}}",
+          "contentType": "application/json"
+        },
+        "result": {
+          "method": "GET",
+          "path": "/v1/videos/{{taskId}}/content",
+          "headers": {
+            "Accept": "video/mp4"
+          }
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.data.status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.error"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "stage": {
+            "$switch": {
+              "cases": [
+                {
+                  "when": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "queued"
+                    ]
+                  },
+                  "then": "排队中"
+                },
+                {
+                  "when": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "in_progress"
+                    ]
+                  },
+                  "then": {
+                    "$concat": [
+                      "生成中 ",
+                      {
+                        "$coalesce": [
+                          {
+                            "$ref": "response.progress"
+                          },
+                          0
+                        ]
+                      },
+                      "%"
+                    ]
+                  }
+                }
+              ],
+              "default": null
+            }
+          }
+        }
+      }
+    ]
+  }
+}
