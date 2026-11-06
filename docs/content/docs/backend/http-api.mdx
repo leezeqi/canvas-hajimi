@@ -19,6 +19,8 @@ description: 信封、错误码与 OpenAPI
 
 傲天 AoTian 视频（含经 NewAPI 原样转发的中转渠道）使用独立 `aotian-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/size/resolution`，参考图为公网 HTTPS URL 数组 `images`，参考视频、音频为 `reference_videos`、`reference_audios`；`GET /v1/videos/{id}` 查询，完成后直接下载响应中的 `url`。插件要求公网素材地址，画布资源以签名链接提供，内嵌数据或非 HTTPS 地址在提交前失败；上游拒绝 multipart 文件的特价线路不能继续使用 `newapi`（OpenAI Videos）协议。该插件只向管理员显示：普通用户的插件中心、插件状态和协议目录不返回它，自定义渠道也不能使用；管理员把它配置到系统渠道模型后，普通用户可通过该系统渠道正常生成，插件被平台停用时一并失败。
 
+SD2.5PP 视频使用独立 `sd25pp-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/resolution/aspect_ratio`，`mode` 固定为 `omni_reference`，参考素材按图片、视频、音频顺序拼成 `references: [{kind, data}]`；`GET /v1/videos/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址，创建带 `Idempotency-Key` 并在 429/5xx 时用同一个键重试。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。仅管理员可见按渠道协议 ID 匹配，这类插件的 Provider ID 必须与插件 ID 相同。
+
 `POST /api/workbench/tasks` 的视频任务根据已校验的 `references` 推导操作类型，客户端不需要提交泛化的 `video` 操作：
 
 | 输入 | 操作 |

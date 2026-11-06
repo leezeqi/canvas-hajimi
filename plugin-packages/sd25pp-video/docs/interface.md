@@ -3,7 +3,8 @@
 ## 协议身份
 
 - 插件 ID：`sd25pp-video`。
-- Provider ID：`sd25pp-videos`。
+- Provider ID：`sd25pp-video`（与插件 ID 相同）。
+- 可见性：仅管理员可见。普通用户的插件中心、插件状态和协议目录不返回该插件，自定义渠道也不能使用；管理员把它配置到系统渠道模型后，普通用户可以通过该系统渠道正常生成，插件被平台停用时一并失败。
 - 能力：`video`。
 - 默认 Base URL：无，渠道里填写站点域名，末尾不要带 `/v1`（接口路径已包含 `/v1`）。
 - 鉴权：`Authorization: Bearer <apiKey>`，只使用站点令牌（`sk-` 开头）。
@@ -102,7 +103,7 @@
   "contributes": {
     "providers": [
       {
-        "id": "sd25pp-videos",
+        "id": "sd25pp-video",
         "label": "SD2.5PP Videos",
         "capabilities": [
           "video"

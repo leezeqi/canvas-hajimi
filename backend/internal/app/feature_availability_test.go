@@ -112,6 +112,7 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 		"uploaded":        {Source: "uploaded", Metadata: protocol.Metadata{ID: "uploaded", Name: "自定义协议", Version: "1"}},
 		"app":             {Source: "bundled", Metadata: protocol.Metadata{ID: WorkflowPluginRunningHub, Name: "官方应用", Version: "1"}},
 		PluginAotianVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginAotianVideo, Name: "傲天 Seedance 视频", Version: "1"}},
+		PluginSD25PPVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginSD25PPVideo, Name: "SD2.5PP 全能参考视频", Version: "1"}},
 	}}
 
 	visibleToUser, err := svc.PluginsForUser(&model.User{ID: "user-1", Role: model.UserRoleUser})
@@ -132,56 +133,60 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 		t.Fatal(err)
 	}
 	for _, plugin := range visibleToUser {
-		if plugin.Manifest.ID == PluginAotianVideo {
-			t.Fatal("admin-only plugin was visible to an ordinary user")
+		if isAdminOnlyPlugin(plugin.Manifest.ID) {
+			t.Fatalf("admin-only plugin %q was visible to an ordinary user", plugin.Manifest.ID)
 		}
 	}
 	visibleToAdmin, err := svc.PluginsForUser(admin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(visibleToAdmin) != 4 {
+	if len(visibleToAdmin) != 5 {
 		t.Fatalf("PluginsForUser(admin) = %#v", visibleToAdmin)
 	}
 }
 
-func TestProviderProtocolPluginAllowsAotianForUsersOnlyThroughSystemChannels(t *testing.T) {
-	svc, db := newFeatureAvailabilityTestService(t)
-	if err := db.AutoMigrate(&model.User{}, &model.PluginPlatformState{}); err != nil {
-		t.Fatal(err)
-	}
-	ordinary := &model.User{ID: "user-1", Username: "user-1", Role: model.UserRoleUser}
-	admin := &model.User{ID: "admin-1", Username: "admin-1", Role: model.UserRoleAdmin}
-	for _, user := range []*model.User{ordinary, admin} {
-		if err := db.Create(user).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	svc.pluginRuntime = &pluginRuntime{plugins: map[string]pluginRecord{
-		PluginAotianVideo: {Source: "bundled", Status: "enabled", Metadata: protocol.Metadata{ID: PluginAotianVideo, Name: "傲天 Seedance 视频", Version: "1"}},
-	}}
-	// resolveProviderConfig 只在系统渠道路径写入 ChannelID，并用渠道模型协议覆盖客户端传入值。
-	systemChannel := providerConfig{ChannelID: "system-1", InterfaceType: PluginAotianVideo}
-	customChannel := providerConfig{BaseURL: "https://example.com", InterfaceType: PluginAotianVideo}
+func TestProviderProtocolPluginAllowsAdminOnlyPluginsForUsersOnlyThroughSystemChannels(t *testing.T) {
+	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo} {
+		t.Run(pluginID, func(t *testing.T) {
+			svc, db := newFeatureAvailabilityTestService(t)
+			if err := db.AutoMigrate(&model.User{}, &model.PluginPlatformState{}); err != nil {
+				t.Fatal(err)
+			}
+			ordinary := &model.User{ID: "user-1", Username: "user-1", Role: model.UserRoleUser}
+			admin := &model.User{ID: "admin-1", Username: "admin-1", Role: model.UserRoleAdmin}
+			for _, user := range []*model.User{ordinary, admin} {
+				if err := db.Create(user).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			svc.pluginRuntime = &pluginRuntime{plugins: map[string]pluginRecord{
+				pluginID: {Source: "bundled", Status: "enabled", Metadata: protocol.Metadata{ID: pluginID, Name: pluginID, Version: "1"}},
+			}}
+			// resolveProviderConfig 只在系统渠道路径写入 ChannelID，并用渠道模型协议覆盖客户端传入值。
+			systemChannel := providerConfig{ChannelID: "system-1", InterfaceType: pluginID}
+			customChannel := providerConfig{BaseURL: "https://example.com", InterfaceType: pluginID}
 
-	if err := svc.requireProviderProtocolPlugin(ordinary.ID, systemChannel); err != nil {
-		t.Fatalf("ordinary user calling an admin-configured system channel error = %v", err)
-	}
-	if err := svc.requireProviderProtocolPlugin(ordinary.ID, customChannel); err == nil {
-		t.Fatal("ordinary user used the admin-only plugin through a custom channel")
-	}
-	if err := svc.RequirePluginForUser(ordinary.ID, PluginAotianVideo); err == nil {
-		t.Fatal("ordinary user was allowed to use the admin-only plugin directly")
-	}
-	if err := svc.requireProviderProtocolPlugin(admin.ID, customChannel); err != nil {
-		t.Fatalf("admin custom channel error = %v", err)
-	}
+			if err := svc.requireProviderProtocolPlugin(ordinary.ID, systemChannel); err != nil {
+				t.Fatalf("ordinary user calling an admin-configured system channel error = %v", err)
+			}
+			if err := svc.requireProviderProtocolPlugin(ordinary.ID, customChannel); err == nil {
+				t.Fatal("ordinary user used the admin-only plugin through a custom channel")
+			}
+			if err := svc.RequirePluginForUser(ordinary.ID, pluginID); err == nil {
+				t.Fatal("ordinary user was allowed to use the admin-only plugin directly")
+			}
+			if err := svc.requireProviderProtocolPlugin(admin.ID, customChannel); err != nil {
+				t.Fatalf("admin custom channel error = %v", err)
+			}
 
-	if err := svc.repo.SavePluginPlatformState(&model.PluginPlatformState{PluginID: PluginAotianVideo, Available: false, UpdatedBy: admin.ID}); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.requireProviderProtocolPlugin(ordinary.ID, systemChannel); err == nil {
-		t.Fatal("system channel kept using a plugin disabled by the platform")
+			if err := svc.repo.SavePluginPlatformState(&model.PluginPlatformState{PluginID: pluginID, Available: false, UpdatedBy: admin.ID}); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.requireProviderProtocolPlugin(ordinary.ID, systemChannel); err == nil {
+				t.Fatal("system channel kept using a plugin disabled by the platform")
+			}
+		})
 	}
 }
 

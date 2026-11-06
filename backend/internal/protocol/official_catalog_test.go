@@ -617,7 +617,7 @@ func TestOfficialMaxForAIVideoProfilesUseDocumentedFields(t *testing.T) {
 }
 
 func TestOfficialSD25PPVideoUsesReferencesContract(t *testing.T) {
-	adapter := officialPackageAdapter(t, "sd25pp-video.yingce-plugin", "sd25pp-videos")
+	adapter := officialPackageAdapter(t, "sd25pp-video.yingce-plugin", "sd25pp-video")
 	if metadata := adapter.Metadata(); !metadata.RequiresPublicMediaURLs || !metadata.IdempotentCreate {
 		t.Fatalf("metadata = %#v, want public media URLs and idempotent create", metadata)
 	}

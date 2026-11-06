@@ -7,10 +7,12 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 ## SD2.5PP 全能参考视频协议
 
-- 已实现：独立 `sd25pp-video` 声明式插件（Provider `sd25pp-videos`），`POST /v1/videos` 只发 JSON：`model`、`prompt`、整数 `seconds`（未指定时 5）、`resolution`（转小写）、`aspect_ratio`、固定 `mode=omni_reference`，参考素材按图片、视频、音频顺序拼成 `references: [{kind, data}]`，每项只带这两个键。默认 Base URL 为空，渠道里填站点域名，不带 `/v1`。
+- 已实现：独立 `sd25pp-video` 声明式插件（Provider ID 与插件 ID 相同），`POST /v1/videos` 只发 JSON：`model`、`prompt`、整数 `seconds`（未指定时 5）、`resolution`（转小写）、`aspect_ratio`、固定 `mode=omni_reference`，参考素材按图片、视频、音频顺序拼成 `references: [{kind, data}]`，每项只带这两个键。默认 Base URL 为空，渠道里填站点域名，不带 `/v1`。
 - 已实现：声明 `requiresPublicMediaUrls`，站内资源换成签名 URL，内嵌数据在提交前被拒；声明 `idempotentCreate`，创建请求带 `Idempotency-Key`，429 / 5xx / 网络中断时用同一个键重试。提交前校验时长 5–30、至少一张图或一个视频、图片 ≤ 30 / 视频 ≤ 10 / 音频 ≤ 10、画幅与分辨率枚举。
 - 已实现：查询 `GET /v1/videos/{id}`，`queued` / `in_progress` / `completed` / `failed` 映射为等待 / 处理中 / 成功 / 失败，进度文案为“排队中”“生成中 N%”，失败原因取 `error.message` 或字符串 `error`；成功后调用 `GET /v1/videos/{id}/content` 带令牌下载成片。
 - 已验证：协议测试覆盖请求体字段、素材排序与多余键过滤、默认值、各项校验拦截、状态与失败原因映射、`/content` 下载请求；`internal/protocol` 全包测试和官方插件安装文档测试通过。未用真实站点令牌联调。
+- 已实现：与 `aotian-video` 一样仅管理员可见：普通用户的插件中心、插件状态和协议目录不返回它，自定义渠道不能使用；管理员配置到系统渠道模型后普通用户可正常调用，平台停用插件时一并失败。仅管理员可见按渠道协议 ID 匹配，因此 Provider ID 改为与插件 ID 相同。单测覆盖目录隐藏、系统渠道放行、自定义渠道拦截和平台停用后拒绝。
+- [ ] 普通用户在创作页选择使用 `sd25pp-video` 的系统渠道生成视频，不提示“该插件仅管理员可用”；该用户的插件中心和自定义渠道协议列表看不到它。
 - [ ] 真实渠道：后台新建系统渠道选择该协议，填站点域名和 `sk-` 令牌、模型 `sd2.5pp`，用一张参考图生成 5 秒 720p，确认取得任务号、进度更新、成片下载成功，站内任务日志扣 4 元。
 - [ ] 真实渠道：参考图 + 参考视频 + 参考音频、30 秒 1080p 竖屏各验一次；确认签名素材地址能被上游从公网下载。
 - [ ] 失败路径：参考视频超过 15 秒、只传音频、当日额度售罄时，前端显示上游中文原因，失败任务自动退款。
