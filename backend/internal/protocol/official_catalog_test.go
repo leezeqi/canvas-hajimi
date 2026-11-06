@@ -616,6 +616,8 @@ func TestOfficialMaxForAIVideoProfilesUseDocumentedFields(t *testing.T) {
 	}
 }
 
+const sd25ppRatioHint = "（参考图片和参考视频的宽高比需在 0.4–2.5 之间，约 2:5 到 5:2，每边 300–6000 像素；请把过窄、过扁或过小的素材裁切或补边成 16:9、9:16、1:1 等常见画幅后重试）"
+
 func TestOfficialSD25PPVideoUsesReferencesContract(t *testing.T) {
 	adapter := officialPackageAdapter(t, "sd25pp-video.yingce-plugin", "sd25pp-video")
 	if metadata := adapter.Metadata(); !metadata.RequiresPublicMediaURLs || !metadata.IdempotentCreate {
@@ -724,6 +726,9 @@ func TestOfficialSD25PPVideoUsesReferencesContract(t *testing.T) {
 		{payload: `{"id":"task-sd25pp","status":"completed","progress":100}`, status: StatusSucceeded},
 		{payload: `{"id":"task-sd25pp","status":"failed","error":"图片无法识别"}`, status: StatusFailed, message: "图片无法识别"},
 		{payload: `{"id":"task-sd25pp","status":"failed","error":{"message":"上游繁忙"}}`, status: StatusFailed, message: "上游繁忙"},
+		// 上游只说“比例不规范”而不给范围，插件补上合规宽高比和修正方式。
+		{payload: `{"id":"task-sd25pp","status":"failed","error":"参考素材比例不规范"}`, status: StatusFailed, message: "参考素材比例不规范" + sd25ppRatioHint},
+		{payload: `{"id":"task-sd25pp","status":"failed","error":{"message":"参考素材比例不规范"}}`, status: StatusFailed, message: "参考素材比例不规范" + sd25ppRatioHint},
 	}
 	for _, test := range states {
 		state, err := adapter.ParsePoll(context.Background(), PollContext{Request: request, TaskID: "task-sd25pp"}, []byte(test.payload))

@@ -49,7 +49,9 @@
 
 素材 URL 必须能被上游从公网访问：本机、内网或需要登录的地址会被上游以 400 拒收，所以部署需要对外可访问的 HTTPS 资源地址。
 
-单个素材的大小、格式和时长（参考视频 / 音频 2–15 秒、音频合计不超过 15 秒）宿主拿不到可靠信息，由上游校验；超限时上游返回 400 并指出是第几个参考素材。
+单个素材的大小、格式、时长（参考视频 / 音频 2–15 秒、音频合计不超过 15 秒）和画面尺寸宿主拿不到可靠信息，由上游校验；超限时上游返回 400 并指出是第几个参考素材。
+
+参考图片和参考视频的宽高比（宽 ÷ 高）需在 0.4–2.5 之间（约 2:5 到 5:2），每边 300–6000 像素。该范围沿用 Seedance 2.0 系列公开规格，上游只返回“参考素材比例不规范”且不写范围、不指明是第几个素材，所以插件在失败原因含“比例”时追加范围和裁切建议，见下文。
 
 ## 查询与结果
 
@@ -60,7 +62,7 @@
 | `completed` | 成功 | — |
 | `failed` | 失败 | — |
 
-失败原因依次取 `error.message`、`error`（字符串）、`message`、`fail_reason`。上游只返回中文说明，不返回内部错误代码。
+失败原因依次取 `error.message`、`error`（字符串）、`message`、`fail_reason`。上游只返回中文说明，不返回内部错误代码。失败原因含“比例”时，在原文后追加“（参考图片和参考视频的宽高比需在 0.4–2.5 之间……后重试）”，说明合规范围和修正方式；其他失败原因原样透传。
 
 查询响应不映射视频地址。任务成功后，宿主调用 `GET /v1/videos/{task_id}/content` 带令牌下载成片并持久化。参考耗时：5 秒约 1–2 分钟，15 秒约 3–5 分钟，30 秒约 5–8 分钟；进度超过 90% 后变慢属于正常合成阶段。
 
@@ -141,13 +143,13 @@
             "name": "images",
             "type": "media[]",
             "mapping": "references[kind=image]",
-            "description": "参考图片，最多 30 张，公网 HTTPS URL；PNG / JPEG / WebP，单张不超过 10 MiB。"
+            "description": "参考图片，最多 30 张，公网 HTTPS URL；PNG / JPEG / WebP，单张不超过 10 MiB，宽高比 0.4–2.5（约 2:5 到 5:2）、每边 300–6000 像素。"
           },
           {
             "name": "videos",
             "type": "media[]",
             "mapping": "references[kind=video]",
-            "description": "参考视频，最多 10 个，公网 HTTPS URL；MP4 / WebM，单个 2–15 秒、不超过 100 MiB。"
+            "description": "参考视频，最多 10 个，公网 HTTPS URL；MP4 / WebM，单个 2–15 秒、不超过 100 MiB，画面宽高比 0.4–2.5（约 2:5 到 5:2）、每边 300–6000 像素。"
           },
           {
             "name": "audios",
@@ -509,18 +511,56 @@
             ]
           },
           "message": {
-            "$coalesce": [
+            "$concat": [
               {
-                "$ref": "response.error.message"
+                "$coalesce": [
+                  {
+                    "$ref": "response.error.message"
+                  },
+                  {
+                    "$ref": "response.error"
+                  },
+                  {
+                    "$ref": "response.message"
+                  },
+                  {
+                    "$ref": "response.fail_reason"
+                  }
+                ]
               },
               {
-                "$ref": "response.error"
-              },
-              {
-                "$ref": "response.message"
-              },
-              {
-                "$ref": "response.fail_reason"
+                "$if": {
+                  "condition": {
+                    "$gt": [
+                      {
+                        "$len": {
+                          "$split": [
+                            {
+                              "$coalesce": [
+                                {
+                                  "$ref": "response.error.message"
+                                },
+                                {
+                                  "$ref": "response.error"
+                                },
+                                {
+                                  "$ref": "response.message"
+                                },
+                                {
+                                  "$ref": "response.fail_reason"
+                                }
+                              ]
+                            },
+                            "比例"
+                          ]
+                        }
+                      },
+                      1
+                    ]
+                  },
+                  "then": "（参考图片和参考视频的宽高比需在 0.4–2.5 之间，约 2:5 到 5:2，每边 300–6000 像素；请把过窄、过扁或过小的素材裁切或补边成 16:9、9:16、1:1 等常见画幅后重试）",
+                  "else": null
+                }
               }
             ]
           },
