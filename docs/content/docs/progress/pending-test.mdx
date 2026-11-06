@@ -5,6 +5,15 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 9Y API 视频协议
+
+- 已实现：独立 `nineyapi-video` 声明式插件（Provider `nineyapi-video`，默认 Base URL `https://9yapi.shop`），覆盖 SD-2.0 / 2.5 系列、`【官转】Minimax-H3`、wan3.0 特惠版和 sd2.0-fast。`POST /v1/videos` 发 JSON：`model`、`prompt`、整数 `seconds`、小写 `resolution`、`aspect_ratio`、`generate_audio`（仅 true 时下发），参考素材为 `reference_images: [{url, role}]`、`reference_videos: [{url}]`、`reference_audios: [{url}]`，空值省略。
+- 已实现：声明 `requiresPublicMediaUrls`；提交前校验时长 4–30、画幅/分辨率枚举、尾帧须搭配首帧。查询 `GET /v1/videos/{id}`，成片优先取 `video_url` / `result_url` 直链，缺失时走 `/v1/videos/{id}/content` 带 Key 下载。
+- 已验证：协议单测覆盖请求体、排序、默认省略、首尾帧、校验拦截、状态与结果映射；`internal/protocol` 全包与官方插件安装文档测试通过。未用真实 Key 联调。
+- [ ] 真实渠道：分别用 `【满血】SD-2.5-720p`、`【官转】Minimax-H3`（至少 1 张图、分辨率 768p）、`wan3.0-特惠版720p`、`【官转】sd2.0-fast` 各生成一次，确认建单、进度、直链下载与持久化。
+- [ ] 确认 wan3.0 特惠版接受 `reference_images` 对象数组（文档示例为空数组）；确认宿主签名素材地址可被 9Y 直接拉取，不必先上传 9Y 图床。
+- [ ] 带参考素材的 SD 满血线路创建耗时是否超过宿主 5 分钟上游超时。
+
 ## SD2.5PP 全能参考视频协议
 
 - 已实现：独立 `sd25pp-video` 声明式插件（Provider ID 与插件 ID 相同），`POST /v1/videos` 只发 JSON：`model`、`prompt`、整数 `seconds`（未指定时 5）、`resolution`（转小写）、`aspect_ratio`、固定 `mode=omni_reference`，参考素材按图片、视频、音频顺序拼成 `references: [{kind, data}]`，每项只带这两个键。默认 Base URL 为空，渠道里填站点域名，不带 `/v1`。
