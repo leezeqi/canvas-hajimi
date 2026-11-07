@@ -218,7 +218,12 @@ func (s *Service) materializeTaskMedia(ctx context.Context, task *model.Task, co
 				if err != nil {
 					return nil, &mediaRecoveryError{stage: "download", cause: err}
 				}
+				downloadStarted := time.Now()
 				item.TempName, item.MIMEType, err = s.downloadTaskMedia(ctx, config, item.Reference.URL, checkpoint.Mode)
+				// 下载失败也要留下 task/media/download 记录，否则请求日志里看不到每次重试的原因。
+				if err != nil && ctx.Err() == nil {
+					s.logMediaStage(*task, "download", downloadStarted, err)
+				}
 				if err != nil {
 					return nil, &mediaRecoveryError{stage: "download", retryable: retryableMediaRecovery(err), cause: err}
 				}
@@ -523,7 +528,11 @@ func (s *Service) logMediaStage(task model.Task, stage string, started time.Time
 		code = "media_" + stage + "_failed"
 		message = mediaStageLabel(stage)
 		// 只附加存储服务返回的错误码和状态码，不写对象路径、URL 或凭据。
-		if label := classifyStorageError(err).Label(); label != "" {
+		if stage == "download" {
+			if detail := mediaDownloadFailureDetail(err); detail != "" {
+				message += "（" + detail + "）"
+			}
+		} else if label := classifyStorageError(err).Label(); label != "" {
 			message += "（存储返回 " + label + "）"
 		} else if errors.Is(err, errStorageCircuitOpen) {
 			message += "（存储熔断中，未直传）"

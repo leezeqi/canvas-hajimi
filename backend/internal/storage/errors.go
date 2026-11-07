@@ -164,9 +164,14 @@ func timeoutCause(err error) bool {
 
 func networkCause(err error) bool {
 	for err != nil {
-		var networkErr net.Error
 		var urlErr *url.Error
-		if errors.As(err, &networkErr) || errors.As(err, &urlErr) || errors.Is(err, context.DeadlineExceeded) {
+		// 地址解析失败（如含换行等控制字符）发生在发请求之前，重试必然再次失败，不是网络问题。
+		// *url.Error 同时实现 net.Error，必须先排除，否则会被下面的 net.Error 分支当成网络错误。
+		if errors.As(err, &urlErr) && urlErr.Op == "parse" {
+			return false
+		}
+		var networkErr net.Error
+		if errors.As(err, &networkErr) || urlErr != nil || errors.Is(err, context.DeadlineExceeded) {
 			return true
 		}
 		message := strings.ToLower(err.Error())

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +69,26 @@ func mediaDownloadLogError(err error) error {
 	default:
 		return errors.New("结果下载失败")
 	}
+}
+
+// mediaDownloadFailureDetail 是写进作品保存阶段日志的脱敏原因，只含类别和 HTTP 状态码，
+// 不含地址、签名或上游原文。
+func mediaDownloadFailureDetail(err error) string {
+	var parseErr *neturl.Error
+	var upstream providerHTTPError
+	switch {
+	case errors.Is(err, errMediaDownloadStalled):
+		return "长时间没有进度"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "超时"
+	case errors.As(err, &parseErr) && parseErr.Op == "parse":
+		return "上游结果地址无效"
+	case errors.As(err, &upstream):
+		return fmt.Sprintf("上游返回 HTTP %d", upstream.StatusCode)
+	case errors.Is(err, errMediaStagingFull):
+		return "暂存空间不足"
+	}
+	return ""
 }
 
 // mediaStagingRetainedTTL 是未完成作品检查点仍引用的暂存文件的最长保留时间。
@@ -154,7 +175,52 @@ func (s *Service) stageInlineMedia(data []byte) (string, error) {
 	return filepath.Base(file.Name()), nil
 }
 
-func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, url, mode string) (name, mimeType string, err error) {
+// mediaURLCandidates 拆分上游在同一个结果字段里用换行/空白拼接的多个候选地址
+// （例如 Navivo 返回 "<content 地址>\n<CDN 直链>"）。只有每一段都是 http(s) 地址时才拆分，
+// 其余情况原样作为单个地址，由下载阶段给出真实错误。
+func mediaURLCandidates(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	parts := strings.Fields(trimmed)
+	if len(parts) < 2 {
+		return []string{trimmed}
+	}
+	for _, part := range parts {
+		lower := strings.ToLower(part)
+		if !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "http://") {
+			return []string{trimmed}
+		}
+	}
+	return parts
+}
+
+// downloadTaskMedia 按顺序尝试每个候选地址，第一个成功即返回。全部失败时优先返回可重试的
+// 错误，让自动恢复继续；没有可重试错误时合并返回，避免对必然失败的地址空等重试窗口。
+func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, url, mode string) (string, string, error) {
+	candidates := mediaURLCandidates(url)
+	var failures []error
+	for _, candidate := range candidates {
+		name, mimeType, err := s.downloadTaskMediaOnce(ctx, config, candidate, mode)
+		if err == nil {
+			return name, mimeType, nil
+		}
+		// 任务租约失效或服务停止时不再尝试其余地址，保留调用方的取消语义。
+		if ctx.Err() != nil {
+			return "", "", err
+		}
+		failures = append(failures, err)
+	}
+	for _, failure := range failures {
+		if retryableMediaRecovery(failure) {
+			return "", "", failure
+		}
+	}
+	if len(failures) == 1 {
+		return "", "", failures[0]
+	}
+	return "", "", errors.Join(failures...)
+}
+
+func (s *Service) downloadTaskMediaOnce(ctx context.Context, config providerConfig, url, mode string) (name, mimeType string, err error) {
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return "", "", err
