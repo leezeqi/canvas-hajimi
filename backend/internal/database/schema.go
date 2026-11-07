@@ -77,6 +77,7 @@ func Models() []any {
 		&model.SystemSetting{},
 		&model.PluginPlatformState{},
 		&model.UserPluginState{},
+		&model.PluginUserVisibility{},
 		&model.ArkPrivateAssetBinding{},
 		&model.ArkPortraitSession{},
 		&model.ArkPortraitGroup{},

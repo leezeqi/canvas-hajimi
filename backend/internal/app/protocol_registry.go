@@ -36,19 +36,16 @@ type PluginProviderCatalogItem struct {
 // PluginProviderCatalog projects provider and workflow contributions from the
 // unified plugin registry for channel and creation settings.
 func (s *Service) PluginProviderCatalog(scope, capability string, includeUnavailable bool) []PluginProviderCatalogItem {
-	return s.pluginProviderCatalogForUser(nil, scope, capability, includeUnavailable)
+	return s.pluginProviderCatalog(scope, capability, includeUnavailable, nil)
 }
 
-func (s *Service) PluginProviderCatalogForUser(actor *model.User, scope, capability string, includeUnavailable bool) []PluginProviderCatalogItem {
-	return s.pluginProviderCatalogForUser(actor, scope, capability, includeUnavailable)
-}
-
-func (s *Service) pluginProviderCatalogForUser(actor *model.User, scope, capability string, includeUnavailable bool) []PluginProviderCatalogItem {
+// pluginProviderCatalog 跳过 hidden 中的插件（二改：对用户隐藏，见 PluginProviderCatalogForUser）。
+func (s *Service) pluginProviderCatalog(scope, capability string, includeUnavailable bool, hidden map[string]bool) []PluginProviderCatalogItem {
 	wantScope := protocol.Surface(strings.TrimSpace(scope))
 	wantCapability := protocol.Capability(strings.TrimSpace(capability))
 	items := make([]PluginProviderCatalogItem, 0)
 	for _, plugin := range s.Plugins() {
-		if isAdminOnlyPlugin(plugin.Manifest.ID) && (actor == nil || actor.Role != model.UserRoleAdmin) {
+		if hidden[plugin.Manifest.ID] {
 			continue
 		}
 		for _, provider := range plugin.Manifest.Contributes.Providers {
@@ -175,9 +172,13 @@ func (s *Service) PluginsForUser(actor *model.User) ([]PluginView, error) {
 	if err != nil {
 		return nil, err
 	}
+	hidden, err := s.hiddenPluginIDs()
+	if err != nil {
+		return nil, err
+	}
 	filtered := make([]PluginView, 0, len(items))
 	for _, item := range items {
-		if isAdminOnlyPlugin(item.Manifest.ID) {
+		if hidden[item.Manifest.ID] {
 			continue
 		}
 		if visible || item.Management.ActivationScope == PluginScopeUser {
@@ -360,6 +361,9 @@ func (s *Service) UninstallPluginForAdmin(actor *model.User, id string) error {
 	}
 	if err := s.repo.DeletePluginPlatformState(id); err != nil {
 		return fmt.Errorf("清理插件平台状态：%w", err)
+	}
+	if err := s.repo.DeletePluginUserVisibility(id); err != nil {
+		return fmt.Errorf("清理插件用户可见性：%w", err)
 	}
 	return s.appendAdminAudit(actor, "plugin.uninstall", "plugin", id, "卸载自定义插件", nil)
 }

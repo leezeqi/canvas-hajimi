@@ -114,15 +114,9 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 		t.Fatal(err)
 	}
 	svc.pluginRuntime = &pluginRuntime{plugins: map[string]pluginRecord{
-		"bundled":           {Source: "bundled", Metadata: protocol.Metadata{ID: "bundled", Name: "系统协议", Version: "1"}},
-		"uploaded":          {Source: "uploaded", Metadata: protocol.Metadata{ID: "uploaded", Name: "自定义协议", Version: "1"}},
-		"app":               {Source: "bundled", Metadata: protocol.Metadata{ID: WorkflowPluginRunningHub, Name: "官方应用", Version: "1"}},
-		PluginAotianVideo:   {Source: "bundled", Metadata: protocol.Metadata{ID: PluginAotianVideo, Name: "傲天 Seedance 视频", Version: "1"}},
-		PluginSD25PPVideo:   {Source: "bundled", Metadata: protocol.Metadata{ID: PluginSD25PPVideo, Name: "SD2.5PP 全能参考视频", Version: "1"}},
-		PluginNskevenVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginNskevenVideo, Name: "nskeven 视频", Version: "1"}},
-		PluginUUTokenVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginUUTokenVideo, Name: "UUToken 视频", Version: "1"}},
-		PluginJuchuangVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginJuchuangVideo, Name: "聚创引擎视频", Version: "1"}},
-		PluginNineYAPIVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginNineYAPIVideo, Name: "9Y API 视频", Version: "1"}},
+		"bundled":  {Source: "bundled", Metadata: protocol.Metadata{ID: "bundled", Name: "系统协议", Version: "1"}},
+		"uploaded": {Source: "uploaded", Metadata: protocol.Metadata{ID: "uploaded", Name: "自定义协议", Version: "1"}},
+		"app":      {Source: "bundled", Metadata: protocol.Metadata{ID: WorkflowPluginRunningHub, Name: "官方应用", Version: "1"}},
 	}}
 
 	visibleToUser, err := svc.PluginsForUser(&model.User{ID: "user-1", Role: model.UserRoleUser})
@@ -132,71 +126,12 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 	if len(visibleToUser) != 1 || visibleToUser[0].Manifest.ID != WorkflowPluginRunningHub {
 		t.Fatalf("PluginsForUser(user) = %#v", visibleToUser)
 	}
-	if _, err := svc.UpdateFeatureAvailability(admin, FeatureAvailability{
-		ShortDramaEnabled: true, TaskCenterEnabled: true, CreditsEnabled: true,
-		CustomChannelsEnabled: true, PluginCenterEnabled: true, SystemPluginsVisibleToUsers: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	visibleToUser, err = svc.PluginsForUser(&model.User{ID: "user-1", Role: model.UserRoleUser})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, plugin := range visibleToUser {
-		if isAdminOnlyPlugin(plugin.Manifest.ID) {
-			t.Fatalf("admin-only plugin %q was visible to an ordinary user", plugin.Manifest.ID)
-		}
-	}
 	visibleToAdmin, err := svc.PluginsForUser(admin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(visibleToAdmin) != 9 {
+	if len(visibleToAdmin) != 3 {
 		t.Fatalf("PluginsForUser(admin) = %#v", visibleToAdmin)
-	}
-}
-
-func TestProviderProtocolPluginAllowsAdminOnlyPluginsForUsersOnlyThroughSystemChannels(t *testing.T) {
-	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo, PluginNskevenVideo, PluginUUTokenVideo, PluginJuchuangVideo, PluginNineYAPIVideo} {
-		t.Run(pluginID, func(t *testing.T) {
-			svc, db := newFeatureAvailabilityTestService(t)
-			if err := db.AutoMigrate(&model.User{}, &model.PluginPlatformState{}); err != nil {
-				t.Fatal(err)
-			}
-			ordinary := &model.User{ID: "user-1", Username: "user-1", Role: model.UserRoleUser}
-			admin := &model.User{ID: "admin-1", Username: "admin-1", Role: model.UserRoleAdmin}
-			for _, user := range []*model.User{ordinary, admin} {
-				if err := db.Create(user).Error; err != nil {
-					t.Fatal(err)
-				}
-			}
-			svc.pluginRuntime = &pluginRuntime{plugins: map[string]pluginRecord{
-				pluginID: {Source: "bundled", Status: "enabled", Metadata: protocol.Metadata{ID: pluginID, Name: pluginID, Version: "1"}},
-			}}
-			// resolveProviderConfig 只在系统渠道路径写入 ChannelID，并用渠道模型协议覆盖客户端传入值。
-			systemChannel := providerConfig{ChannelID: "system-1", InterfaceType: pluginID}
-			customChannel := providerConfig{BaseURL: "https://example.com", InterfaceType: pluginID}
-
-			if err := svc.requireProviderProtocolPlugin(ordinary.ID, systemChannel); err != nil {
-				t.Fatalf("ordinary user calling an admin-configured system channel error = %v", err)
-			}
-			if err := svc.requireProviderProtocolPlugin(ordinary.ID, customChannel); err == nil {
-				t.Fatal("ordinary user used the admin-only plugin through a custom channel")
-			}
-			if err := svc.RequirePluginForUser(ordinary.ID, pluginID); err == nil {
-				t.Fatal("ordinary user was allowed to use the admin-only plugin directly")
-			}
-			if err := svc.requireProviderProtocolPlugin(admin.ID, customChannel); err != nil {
-				t.Fatalf("admin custom channel error = %v", err)
-			}
-
-			if err := svc.repo.SavePluginPlatformState(&model.PluginPlatformState{PluginID: pluginID, Available: false, UpdatedBy: admin.ID}); err != nil {
-				t.Fatal(err)
-			}
-			if err := svc.requireProviderProtocolPlugin(ordinary.ID, systemChannel); err == nil {
-				t.Fatal("system channel kept using a plugin disabled by the platform")
-			}
-		})
 	}
 }
 
@@ -279,7 +214,8 @@ func newFeatureAvailabilityTestService(t *testing.T) (*Service, *gorm.DB) {
 	if sqlDB, err := db.DB(); err == nil {
 		sqlDB.SetMaxOpenConns(1)
 	}
-	if err := db.AutoMigrate(&model.SystemSetting{}, &model.AdminAuditEvent{}); err != nil {
+	// PluginUserVisibility：二改的插件对用户开放开关，PluginsForUser 会读取它。
+	if err := db.AutoMigrate(&model.SystemSetting{}, &model.AdminAuditEvent{}, &model.PluginUserVisibility{}); err != nil {
 		t.Fatal(err)
 	}
 	return New(repository.New(db), t.TempDir()), db

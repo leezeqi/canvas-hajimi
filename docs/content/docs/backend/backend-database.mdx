@@ -11,6 +11,10 @@ description: 影策后端核心持久化表与状态边界
 
 二改旧版本曾把这一列登记为迁移 79 `task_user_deletion`，与上游迁移 79 `ecommerce_agent_and_knowledge` 冲突。`migrate-schema up` 发现账本里的 79 是这条二改记录（名称和校验和都匹配）且之后没有其他记录时，会先删除这条账本记录（列保留），再按上游顺序执行 79 及之后的迁移；79 之后已有其他记录时拒绝自动改写账本，需要人工处理。
 
+## 二改：插件是否对用户开放（不占用迁移版本）
+
+`plugin_user_visibilities` 保存协议插件是否对普通用户开放：`plugin_id` 为主键，`hidden_from_users` 为 true 表示仅管理员可见，另有 `updated_by` 和时间戳。没有记录即对用户开放。新库由基线迁移按 `Models()` 建表，所有插件默认开放；已有数据库在 `fork_schema.go` 里建表，并在建表的同一次迁移中把原先写死在代码里的 `aotian-video`、`juchuang-video`、`nineyapi-video`、`nskeven-video`、`sd25pp-video`、`uutoken-video` 写成隐藏，保持升级前的行为。之后重复迁移不再写入，也不覆盖管理员的修改。卸载上传插件时一并删除该插件的记录。`migrate-sqlite-postgres` 的表清单包含这张表。
+
 ## 邮件发送记录与消费日报订阅（Schema 91）
 
 版本 91 `email_logs_and_notifications` 新增两张表，只建表不改旧数据：
@@ -566,6 +570,7 @@ schema v27 为 `channel_model_price_tiers` 和 `billing_orders` 添加 `cost_con
 | --- | --- | --- |
 | `plugin_platform_states` | 保存管理员设置的平台可用状态 | `plugin_id` 为主键；平台停用是所有用户的硬上限，管理员变更写入审计日志 |
 | `user_plugin_states` | 保存用户对官方应用插件的个人启用状态 | `(user_id, plugin_id)` 唯一；系统协议和管理员上传插件不得写入用户级状态 |
+| `plugin_user_visibilities` | 二改：保存协议插件是否对普通用户开放 | `plugin_id` 为主键；没有记录即开放；只隐藏插件和自定义渠道用法，不影响管理员配置的系统渠道；变更写入审计日志，见本页开头 |
 
 有效状态由服务端计算为 `platform_available AND user_enabled`。官方应用插件没有平台状态记录时默认可用；用户没有个人记录时默认停用，历史上全局启用的工作流插件在用户首次保存个人选择前沿用旧状态。管理员上传包的来源和作用域由宿主覆盖，不能通过 Manifest 提权。
 

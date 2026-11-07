@@ -47,6 +47,8 @@ export function AdminPluginDetailModal({ plugin, state, typeLabel, icon, onClose
 function PluginDetail({ plugin, state, typeLabel, icon }: { plugin: AdminPluginDetail; state?: AdminPluginState; typeLabel: string; icon?: ReactNode }) {
     const { manifest, management } = plugin;
     const available = state?.platformAvailable ?? plugin.status === "enabled";
+    // 只有后端登记过的协议插件有“对用户开放”设置，与列表的“用户可见”列一致。
+    const userVisible = management.kind === "protocol" && state ? state.userVisible : undefined;
     const contributions = contributionSummary(manifest);
     const hasPackage = Boolean(plugin.fileName || plugin.sha256 || plugin.installedAt);
     return (
@@ -62,6 +64,7 @@ function PluginDetail({ plugin, state, typeLabel, icon }: { plugin: AdminPluginD
                     <div className="admin-plugin-detail-badges">
                         <AdminStatusBadge label={typeLabel} tone={management.origin === "uploaded" ? "warning" : management.kind === "application" ? "info" : "neutral"} />
                         <AdminStatusBadge label={available ? "平台已开放" : "平台已停用"} tone={available ? "success" : "neutral"} />
+                        {userVisible === undefined ? null : <AdminStatusBadge label={userVisible ? "对用户开放" : "仅管理员可见"} tone={userVisible ? "success" : "info"} />}
                         {manifest.trusted ? <AdminStatusBadge label="来源已验证" tone="success" /> : <AdminStatusBadge label="来源未验证" tone="warning" />}
                         {plugin.status === "invalid" ? <AdminStatusBadge label="插件包无效" tone="error" /> : null}
                         <span className="admin-plugin-detail-id" title={manifest.id}>
@@ -77,6 +80,7 @@ function PluginDetail({ plugin, state, typeLabel, icon }: { plugin: AdminPluginD
                         <Fact label="来源">{originLabel(management.origin)}</Fact>
                         <Fact label="作用范围">{management.activationScope === "user" ? "用户自主启用" : "全局生效，管理员统一控制"}</Fact>
                         {management.activationScope === "user" ? <Fact label="已启用用户">{`${state?.enabledUserCount || 0} 位`}</Fact> : null}
+                        {userVisible === undefined ? null : <Fact label="用户可见">{userVisible ? "对用户开放" : "仅管理员可见，普通用户可经系统渠道使用"}</Fact>}
                         <Fact label="配置方式">{configurationLabel(management.configurationScope)}</Fact>
                     </FactGroup>
                     <FactGroup icon={<KeyRound />} title="权限">

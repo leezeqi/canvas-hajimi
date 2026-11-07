@@ -12,7 +12,7 @@ import { EAGLE_PLUGIN_ID } from "@/lib/plugins/builtin/eagle";
 import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 import { isOfficialApplicationPluginId } from "@/lib/plugins/official-applications";
 import { listRegisteredPlugins } from "@/lib/plugins/plugin-registry";
-import { fetchAdminPlugins, setPluginPlatformAvailability, uninstallPlugin, uploadPlugin, type AdminPluginState, type BackendPlugin, type PluginManagement } from "@/services/api/plugins";
+import { fetchAdminPlugins, setPluginPlatformAvailability, setPluginUserVisibility, uninstallPlugin, uploadPlugin, type AdminPluginState, type BackendPlugin, type PluginManagement } from "@/services/api/plugins";
 import { UploadPluginModal } from "@/pages/plugins/plugin-documentation-modals";
 
 import { AdminPageFrame } from "../components/admin-shell";
@@ -28,10 +28,12 @@ export default function AdminPluginsPage() {
     const [states, setStates] = useState<Record<string, AdminPluginState>>({});
     const [loading, setLoading] = useState(true);
     const [savingId, setSavingId] = useState("");
+    const [visibilitySavingId, setVisibilitySavingId] = useState("");
     const [uploadOpen, setUploadOpen] = useState(false);
     const [search, setSearch] = useState("");
     const [kind, setKind] = useState<"all" | "application" | "protocol" | "payment" | "uploaded">("all");
     const [availability, setAvailability] = useState<"all" | "available" | "unavailable">("all");
+    const [visibility, setVisibility] = useState<"all" | "visible" | "hidden">("all");
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
     const [detailId, setDetailId] = useState("");
@@ -64,10 +66,16 @@ export default function AdminPluginsPage() {
             const available = states[item.manifest.id]?.platformAvailable ?? item.status === "enabled";
             if (availability === "available" && !available) return false;
             if (availability === "unavailable" && available) return false;
+            if (visibility !== "all") {
+                const visibilityState = userVisibilityState(item, states);
+                if (!visibilityState) return false;
+                if (visibility === "visible" && !visibilityState.userVisible) return false;
+                if (visibility === "hidden" && visibilityState.userVisible) return false;
+            }
             if (!keyword) return true;
             return [item.manifest.name, item.manifest.id, item.manifest.description, item.manifest.author].filter(Boolean).join(" ").toLocaleLowerCase().includes(keyword);
         });
-    }, [availability, items, kind, search, states]);
+    }, [availability, items, kind, search, states, visibility]);
 
     useEffect(() => {
         setPage((current) => Math.min(current, Math.max(1, Math.ceil(filtered.length / pageSize))));
@@ -86,6 +94,19 @@ export default function AdminPluginsPage() {
         }
     };
 
+    const changeVisibility = async (item: AdminPluginItem, visible: boolean) => {
+        setVisibilitySavingId(item.manifest.id);
+        try {
+            const state = await setPluginUserVisibility(item.manifest.id, visible);
+            setStates((current) => ({ ...current, [item.manifest.id]: state }));
+            message.success(`${item.manifest.name}${visible ? "已对用户开放" : "已设为仅管理员可见"}`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "更新插件用户可见性失败");
+        } finally {
+            setVisibilitySavingId("");
+        }
+    };
+
     const upload = async (file: File) => {
         try {
             await uploadPlugin(file);
@@ -100,7 +121,7 @@ export default function AdminPluginsPage() {
     const remove = (item: AdminPluginItem) => {
         modal.confirm({
             title: `卸载 ${item.manifest.name}？`,
-            content: "插件包、平台状态和所有用户的启用记录都会删除。此操作不可撤销。",
+            content: "插件包、平台状态、用户可见设置和所有用户的启用记录都会删除。此操作不可撤销。",
             okText: "确认卸载",
             okButtonProps: { danger: true },
             cancelText: "取消",
@@ -121,7 +142,8 @@ export default function AdminPluginsPage() {
     const protocolCount = items.filter((item) => item.management.kind === "protocol").length;
     const paymentCount = items.filter((item) => item.management.kind === "payment").length;
     const unavailableCount = items.filter((item) => !(states[item.manifest.id]?.platformAvailable ?? item.status === "enabled")).length;
-    const hasFilters = Boolean(search.trim() || kind !== "all" || availability !== "all");
+    const adminOnlyCount = items.filter((item) => userVisibilityState(item, states)?.userVisible === false).length;
+    const hasFilters = Boolean(search.trim() || kind !== "all" || availability !== "all" || visibility !== "all");
     const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
     const columns: ColumnsType<AdminPluginItem> = [
@@ -218,6 +240,35 @@ export default function AdminPluginsPage() {
             },
         },
         {
+            title: "用户可见",
+            key: "visibility",
+            width: 190,
+            align: "center",
+            render: (_, item) => {
+                const visibilityState = userVisibilityState(item, states);
+                if (!visibilityState) {
+                    return (
+                        <span className="text-xs text-foreground/36" title="只有协议插件可以设置是否对用户开放">
+                            —
+                        </span>
+                    );
+                }
+                const visible = visibilityState.userVisible;
+                return (
+                    <div className="flex items-center justify-center gap-3" title={visible ? undefined : "普通用户看不到该插件，管理员配置的系统渠道照常可用"}>
+                        <AdminStatusBadge label={visible ? "对用户开放" : "仅管理员"} tone={visible ? "success" : "info"} />
+                        <Switch
+                            className="plugin-state-switch"
+                            loading={visibilitySavingId === item.manifest.id}
+                            checked={visible}
+                            aria-label={`${item.manifest.name}，当前${visible ? "对用户开放，点击设为仅管理员可见" : "仅管理员可见，点击对用户开放"}`}
+                            onChange={(checked) => void changeVisibility(item, checked)}
+                        />
+                    </div>
+                );
+            },
+        },
+        {
             title: "操作",
             key: "actions",
             width: 128,
@@ -242,7 +293,7 @@ export default function AdminPluginsPage() {
     return (
         <AdminPageFrame
             title="插件管理"
-            description="管理平台级可用性、自定义插件安装与用户启用范围"
+            description="管理平台级可用性、对用户开放范围、自定义插件安装与用户启用范围"
             actions={
                 <>
                     <Button icon={<RefreshCw className="size-4" />} loading={loading} onClick={() => void reload()}>
@@ -254,12 +305,13 @@ export default function AdminPluginsPage() {
                 </>
             }
         >
-            <div className="my-4 grid min-h-16 grid-cols-2 divide-x divide-border/70 overflow-hidden rounded-lg border border-border/70 bg-card sm:grid-cols-5">
+            <div className="my-4 grid min-h-16 grid-cols-2 divide-x divide-border/70 overflow-hidden rounded-lg border border-border/70 bg-card sm:grid-cols-3 xl:grid-cols-6">
                 <OverviewItem label="全部插件" value={items.length} />
                 <OverviewItem label="官方应用" value={applicationCount} />
                 <OverviewItem label="系统协议" value={protocolCount} />
                 <OverviewItem label="支付协议" value={paymentCount} />
                 <OverviewItem label="平台已停用" value={unavailableCount} tone={unavailableCount ? "warning" : "default"} />
+                <OverviewItem label="仅管理员可见" value={adminOnlyCount} />
             </div>
             <AdminDataTable
                 toolbar={
@@ -308,6 +360,20 @@ export default function AdminPluginsPage() {
                                 { value: "unavailable", label: "平台停用" },
                             ]}
                         />
+                        <Select
+                            aria-label="筛选用户可见"
+                            className="w-36"
+                            value={visibility}
+                            onChange={(value) => {
+                                setVisibility(value);
+                                setPage(1);
+                            }}
+                            options={[
+                                { value: "all", label: "全部可见范围" },
+                                { value: "visible", label: "对用户开放" },
+                                { value: "hidden", label: "仅管理员可见" },
+                            ]}
+                        />
                     </>
                 }
                 toolbarActive={hasFilters}
@@ -315,10 +381,11 @@ export default function AdminPluginsPage() {
                     setSearch("");
                     setKind("all");
                     setAvailability("all");
+                    setVisibility("all");
                     setPage(1);
                 }}
-                skeletonColumns={5}
-                table={{ className: "app-data-table", size: "small", sticky: true, rowKey: (item) => item.manifest.id, loading, columns, dataSource: paginated, pagination: false, scroll: { x: 1120 } }}
+                skeletonColumns={6}
+                table={{ className: "app-data-table", size: "small", sticky: true, rowKey: (item) => item.manifest.id, loading, columns, dataSource: paginated, pagination: false, scroll: { x: 1310 } }}
                 empty={<AdminTableEmpty filtered={hasFilters} title={hasFilters ? undefined : "还没有可管理的插件"} />}
                 footer={
                     <PaginationBar
@@ -400,6 +467,11 @@ function mergePlugins(remote: BackendPlugin[]): AdminPluginItem[] {
     }
     for (const plugin of remote) byId.set(plugin.manifest.id, plugin);
     return [...byId.values()].sort((left, right) => managementOrder(left.management) - managementOrder(right.management) || left.manifest.name.localeCompare(right.manifest.name, "zh-CN"));
+}
+
+/** 只有后端登记过的协议插件可以设置是否对用户开放；其他插件返回 undefined，界面显示“—”。 */
+function userVisibilityState(item: AdminPluginItem, states: Record<string, AdminPluginState>) {
+    return item.management.kind === "protocol" ? states[item.manifest.id] : undefined;
 }
 
 function managementOrder(value: PluginManagement) {

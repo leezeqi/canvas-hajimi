@@ -8,6 +8,4 @@ kling-omni、JM 系列（参考素材为纯 URL 字符串数组）、`官转wan3
 
 插件声明 `requiresPublicMediaUrls`：宿主先把站内素材换成签名 URL 再提交，内嵌数据会被拒绝；上游必须能从公网访问这些地址。本插件不调用 9Y 的 `/v1/reference-assets` 图床。
 
-插件仅管理员可见：普通用户看不到它，也不能在自定义渠道中使用；管理员配置到系统渠道后，普通用户可以通过该系统渠道正常生成。
-
 完整接口见 [docs/interface.md](docs/interface.md)。

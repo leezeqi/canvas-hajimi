@@ -16,12 +16,6 @@ const (
 	PluginMediaConversion     = "media-conversion"
 	PluginEditorShell         = "editor-shell"
 	PluginUserFeedback        = "user-feedback"
-	PluginAotianVideo         = "aotian-video"
-	PluginSD25PPVideo         = "sd25pp-video"
-	PluginNskevenVideo        = "nskeven-video"
-	PluginJuchuangVideo       = "juchuang-video"
-	PluginNineYAPIVideo       = "nineyapi-video"
-	PluginUUTokenVideo        = "uutoken-video"
 
 	PluginOriginOfficial = "official"
 	PluginOriginSystem   = "system"
@@ -63,6 +57,8 @@ type PluginStateView struct {
 type AdminPluginStateView struct {
 	PluginStateView
 	EnabledUserCount int64 `json:"enabledUserCount"`
+	// UserVisible 表示插件是否对普通用户开放（二改，见 plugin_user_visibility.go）。
+	UserVisible bool `json:"userVisible"`
 }
 
 var officialApplicationPolicies = map[string]PluginManagementView{
@@ -109,21 +105,6 @@ var systemPaymentPolicies = map[string]PluginManagementView{
 		Origin: PluginOriginSystem, Kind: PluginKindPayment,
 		ActivationScope: PluginScopeSystem, ConfigurationScope: PluginConfigurationSystem,
 	},
-}
-
-// adminOnlyPlugins 只对普通用户隐藏，不禁止调用管理员配好的系统渠道（见 requireProviderProtocolPlugin）。
-// 生成任务按渠道协议 ID 匹配，因此这些插件的 Provider ID 必须与插件 ID 相同。
-var adminOnlyPlugins = map[string]bool{
-	PluginAotianVideo:   true,
-	PluginSD25PPVideo:   true,
-	PluginNskevenVideo:  true,
-	PluginUUTokenVideo:  true,
-	PluginJuchuangVideo: true,
-	PluginNineYAPIVideo: true,
-}
-
-func isAdminOnlyPlugin(pluginID string) bool {
-	return adminOnlyPlugins[strings.TrimSpace(pluginID)]
 }
 
 func pluginManagement(pluginID string, source string) PluginManagementView {
@@ -202,14 +183,18 @@ func runtimePluginByID(items []PluginView, pluginID string) (PluginView, bool) {
 
 func (s *Service) PluginStatesForUser(actor *model.User) (map[string]PluginStateView, error) {
 	items := s.Plugins()
+	hidden, err := s.pluginsHiddenFrom(actor)
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[string]PluginStateView, len(items)+len(officialApplicationPolicies))
 	for _, pluginID := range knownPluginIDs(items) {
+		if hidden[pluginID] {
+			continue
+		}
 		state, err := s.pluginStateForUser(actor, pluginID, items)
 		if err != nil {
 			return nil, err
-		}
-		if (actor == nil || actor.Role != model.UserRoleAdmin) && isAdminOnlyPlugin(pluginID) {
-			continue
 		}
 		result[pluginID] = state
 	}
@@ -324,9 +309,13 @@ func (s *Service) AdminPluginStates(actor *model.User) (map[string]AdminPluginSt
 	if err != nil {
 		return nil, fmt.Errorf("统计插件启用用户数：%w", err)
 	}
+	hidden, err := s.hiddenPluginIDs()
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[string]AdminPluginStateView, len(states))
 	for pluginID, state := range states {
-		result[pluginID] = AdminPluginStateView{PluginStateView: state, EnabledUserCount: counts[pluginID]}
+		result[pluginID] = AdminPluginStateView{PluginStateView: state, EnabledUserCount: counts[pluginID], UserVisible: !hidden[pluginID]}
 	}
 	return result, nil
 }
@@ -386,34 +375,10 @@ func isKnownRuntimeOptionalPlugin(pluginID string) bool {
 }
 
 func (s *Service) RequirePluginForUser(userID string, pluginID string) error {
-	if isAdminOnlyPlugin(pluginID) {
-		if s.repo == nil {
-			return fmt.Errorf("用户存储未初始化")
-		}
-		user, err := s.repo.User(strings.TrimSpace(userID))
-		if err != nil {
-			return fmt.Errorf("读取用户权限：%w", err)
-		}
-		if user.Role != model.UserRoleAdmin {
-			return Forbidden("该插件仅管理员可用")
-		}
+	if err := s.requirePluginVisibleToUser(userID, pluginID); err != nil {
+		return err
 	}
 	return s.requirePluginEffectiveForUser(userID, pluginID)
-}
-
-// requireProviderProtocolPlugin 校验生成任务所用协议对应的仅管理员可见插件，config 必须已经过
-// resolveProviderConfig。“仅管理员可见”只对普通用户隐藏插件，不禁止调用管理员配好的系统渠道：
-// 系统渠道的协议由 resolveProviderConfig 按渠道模型覆盖，客户端无法指定，因此只要求插件仍由平台启用；
-// 自定义渠道的协议来自客户端，仍按用户角色拦截，避免绕过界面直接使用隐藏插件。
-func (s *Service) requireProviderProtocolPlugin(userID string, config providerConfig) error {
-	pluginID := strings.TrimSpace(config.InterfaceType)
-	if !isAdminOnlyPlugin(pluginID) {
-		return nil
-	}
-	if strings.TrimSpace(config.ChannelID) != "" {
-		return s.requirePluginEffectiveForUser(userID, pluginID)
-	}
-	return s.RequirePluginForUser(userID, pluginID)
 }
 
 func (s *Service) requirePluginEffectiveForUser(userID string, pluginID string) error {

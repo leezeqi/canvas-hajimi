@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"yingce/backend/internal/model"
 	"yingce/backend/internal/protocol"
 )
 
@@ -161,32 +160,6 @@ func TestBundledWorkflowPluginsControlAvailability(t *testing.T) {
 	}
 	if got := svc.WorkflowPluginStatuses()[WorkflowPluginRunningHub]; got != "disabled" {
 		t.Fatalf("RunningHub status = %q, want disabled", got)
-	}
-}
-
-// 目录项 ID 是 Provider ID：管理员目录能按插件 ID 找到条目，同时证明仅管理员可见插件的
-// Provider ID 与插件 ID 一致，生成任务按渠道协议 ID 做的拦截才能命中。
-func TestAdminOnlyProviderCatalogIsVisibleOnlyToAdmins(t *testing.T) {
-	center, err := newPluginRuntime(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := &Service{pluginRuntime: center}
-	userCatalog := svc.PluginProviderCatalogForUser(&model.User{ID: "user-1", Role: model.UserRoleUser}, string(protocol.SurfaceAdminSystemChannel), string(protocol.CapabilityVideo), true)
-	adminCatalog := svc.PluginProviderCatalogForUser(&model.User{ID: "admin-1", Role: model.UserRoleAdmin}, string(protocol.SurfaceAdminSystemChannel), string(protocol.CapabilityVideo), true)
-	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo, PluginNskevenVideo, PluginUUTokenVideo, PluginJuchuangVideo, PluginNineYAPIVideo} {
-		for _, item := range userCatalog {
-			if item.ID == pluginID {
-				t.Errorf("%s provider was visible to an ordinary user", pluginID)
-			}
-		}
-		found := false
-		for _, item := range adminCatalog {
-			found = found || item.ID == pluginID
-		}
-		if !found {
-			t.Errorf("%s provider was missing from administrator catalog", pluginID)
-		}
 	}
 }
 

@@ -423,6 +423,7 @@ func migrations() []tableMigration {
 		migrateTable[model.SystemSetting]("system_settings"),
 		migrateTable[model.PluginPlatformState]("plugin_platform_states"),
 		migrateTable[model.UserPluginState]("user_plugin_states"),
+		migrateTable[model.PluginUserVisibility]("plugin_user_visibilities"),
 		migrateTable[model.ArkPrivateAssetBinding]("ark_private_asset_bindings"),
 		migrateTable[model.ArkPortraitSession]("ark_portrait_sessions"),
 		migrateTable[model.ArkPortraitGroup]("ark_portrait_groups"),

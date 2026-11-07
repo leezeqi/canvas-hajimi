@@ -34,7 +34,8 @@ export type PluginState = {
     blockedReason?: string;
 };
 
-export type AdminPluginState = PluginState & { enabledUserCount: number };
+/** userVisible：插件是否对普通用户开放。只有协议插件可以关闭，关闭后普通用户看不到它，管理员配置的系统渠道照常可用。 */
+export type AdminPluginState = PluginState & { enabledUserCount: number; userVisible: boolean };
 
 export async function fetchPlugins() {
     return http.get<{ plugins: BackendPlugin[]; states: Record<string, PluginState> }>("/plugins");
@@ -62,6 +63,11 @@ export async function fetchAdminPlugins() {
 
 export async function setPluginPlatformAvailability(id: string, available: boolean) {
     const result = await http.put<{ state: AdminPluginState }>(`/admin/plugins/${encodeURIComponent(id)}/availability`, { available });
+    return result.state;
+}
+
+export async function setPluginUserVisibility(id: string, visibleToUsers: boolean) {
+    const result = await http.put<{ state: AdminPluginState }>(`/admin/plugins/${encodeURIComponent(id)}/visibility`, { visibleToUsers });
     return result.state;
 }
 

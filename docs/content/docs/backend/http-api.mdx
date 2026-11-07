@@ -55,17 +55,19 @@ description: 信封、错误码与 OpenAPI
 
 任务列表（含 `GET /api/workbench/tasks`）与任务详情返回经过用户可见错误过滤的 `error` 字段，失败卡片展示该原因。已知类别（参考图过大、模型不存在、要求公网 HTTPS 链接等）换成固定的可操作提示；其余失败保留 `通用分类；上游：具体原因`，具体原因在读取时按写入时的同一规则再过滤一次：只取上游消息字段，URL、IP、任务标识打码，含余额、账务、凭据、请求标识或 HTML 的原因整条不展示，超过 300 字截断。完整上游正文仍只在管理员诊断中。历史任务不重写。Agent 失败说明以英文为主时只展示中文分类前缀。
 
-聚创引擎视频使用独立 `juchuang-video` 插件：`POST /v1/files` 上传素材并取得 HTTPS URL，`POST /v1/media/generate` 提交 `model/prompt/params/client_request_id`，`GET /v1/tasks/{task_id}` 查询。只在 `is_final=true` 后结束任务；已有上游任务号时只查询，不重复上传或提交。素材上传缺少 URL 时停止生成请求。模型 ID、时长、模式和价格按聚创模型卡独立配置，不替换其他渠道。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。
+聚创引擎视频使用独立 `juchuang-video` 插件：`POST /v1/files` 上传素材并取得 HTTPS URL，`POST /v1/media/generate` 提交 `model/prompt/params/client_request_id`，`GET /v1/tasks/{task_id}` 查询。只在 `is_final=true` 后结束任务；已有上游任务号时只查询，不重复上传或提交。素材上传缺少 URL 时停止生成请求。模型 ID、时长、模式和价格按聚创模型卡独立配置，不替换其他渠道。
 
-傲天 AoTian 视频（含经 NewAPI 原样转发的中转渠道）使用独立 `aotian-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/size/resolution`，参考图为公网 HTTPS URL 数组 `images`，参考视频、音频为 `reference_videos`、`reference_audios`；`GET /v1/videos/{id}` 查询，完成后直接下载响应中的 `url`。插件要求公网素材地址，画布资源以签名链接提供，内嵌数据或非 HTTPS 地址在提交前失败；上游拒绝 multipart 文件的特价线路不能继续使用 `newapi`（OpenAI Videos）协议。该插件只向管理员显示：普通用户的插件中心、插件状态和协议目录不返回它，自定义渠道也不能使用；管理员把它配置到系统渠道模型后，普通用户可通过该系统渠道正常生成，插件被平台停用时一并失败。
+傲天 AoTian 视频（含经 NewAPI 原样转发的中转渠道）使用独立 `aotian-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/size/resolution`，参考图为公网 HTTPS URL 数组 `images`，参考视频、音频为 `reference_videos`、`reference_audios`；`GET /v1/videos/{id}` 查询，完成后直接下载响应中的 `url`。插件要求公网素材地址，画布资源以签名链接提供，内嵌数据或非 HTTPS 地址在提交前失败；上游拒绝 multipart 文件的特价线路不能继续使用 `newapi`（OpenAI Videos）协议。
 
-SD2.5PP 视频使用独立 `sd25pp-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/resolution/aspect_ratio`，`mode` 固定为 `omni_reference`，参考素材按图片、视频、音频顺序拼成 `references: [{kind, data}]`；`GET /v1/videos/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址，创建带 `Idempotency-Key` 并在 429/5xx 时用同一个键重试。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。仅管理员可见按渠道协议 ID 匹配，这类插件的 Provider ID 必须与插件 ID 相同。
+SD2.5PP 视频使用独立 `sd25pp-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/resolution/aspect_ratio`，`mode` 固定为 `omni_reference`，参考素材按图片、视频、音频顺序拼成 `references: [{kind, data}]`；`GET /v1/videos/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址，创建带 `Idempotency-Key` 并在 429/5xx 时用同一个键重试。
 
-nskeven NewAPI 视频使用独立 `nskeven-video` 插件：`POST /v1/video/generations` 以 JSON 提交，按模型名在扁平字段、豆包 `metadata.content`、快线 `metadata.videos/audios` 三种请求体间切换；`GET /v1/video/generations/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。
+nskeven NewAPI 视频使用独立 `nskeven-video` 插件：`POST /v1/video/generations` 以 JSON 提交，按模型名在扁平字段、豆包 `metadata.content`、快线 `metadata.videos/audios` 三种请求体间切换；`GET /v1/video/generations/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址。
 
-UUToken 视频使用独立 `uutoken-video` 插件：`POST /v1/videos` 以 JSON 提交，按模型名切换请求体（Seedance、Wan 等通用模型发送 `seconds/aspect_ratio/resolution` 与 `images/videos/audios` URL 数组，`sd2.5-gf`、`kling`、`sora-v3`、`gemini-omni`、`Seedance-2.0-full` 各用专属字段），参考素材为公网 URL；`GET /v1/videos/{id}` 查询，成功后优先使用响应中的 `video_url` / `url`，否则经 `GET /v1/videos/{id}/content` 带令牌下载成片。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。
+UUToken 视频使用独立 `uutoken-video` 插件：`POST /v1/videos` 以 JSON 提交，按模型名切换请求体（Seedance、Wan 等通用模型发送 `seconds/aspect_ratio/resolution` 与 `images/videos/audios` URL 数组，`sd2.5-gf`、`kling`、`sora-v3`、`gemini-omni`、`Seedance-2.0-full` 各用专属字段），参考素材为公网 URL；`GET /v1/videos/{id}` 查询，成功后优先使用响应中的 `video_url` / `url`，否则经 `GET /v1/videos/{id}/content` 带令牌下载成片。
 
-9Y API 视频使用独立 `nineyapi-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/resolution/aspect_ratio`，参考素材为 `reference_images: [{url, role}]`、`reference_videos`、`reference_audios`，均为公网 URL；`GET /v1/videos/{id}` 查询，成功后优先使用响应中的 `video_url` / `result_url`，否则经 `GET /v1/videos/{id}/content` 带令牌下载成片。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。
+9Y API 视频使用独立 `nineyapi-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/resolution/aspect_ratio`，参考素材为 `reference_images: [{url, role}]`、`reference_videos`、`reference_audios`，均为公网 URL；`GET /v1/videos/{id}` 查询，成功后优先使用响应中的 `video_url` / `result_url`，否则经 `GET /v1/videos/{id}/content` 带令牌下载成片。
+
+二改：协议插件是否对普通用户开放由管理员在插件管理里设置。`PUT /api/admin/plugins/:id/visibility` 的请求体为 `{ "visibleToUsers": boolean }`，字段必填；只有管理员可以调用，只接受协议插件（含管理员上传的协议插件），应用、支付插件返回 400，不存在的插件返回 404；成功返回 `{ state }` 并写审计日志 `plugin.visibility.update`。`GET /api/admin/plugins` 的每个 state 增加 `userVisible`。插件默认对用户开放。设为不开放后，普通用户的 `GET /api/plugins`、`GET /api/plugins/status`、`GET /api/plugins/catalog` 不返回该插件，`GET /api/plugins/:id/package` 返回 403；自定义渠道使用该插件协议的生成任务被拒绝，原因为“该插件未对普通用户开放”。管理员不受影响；管理员配置到系统渠道模型的协议对所有人可用，插件被平台停用时一并失败。生成任务按协议反查所属插件，Provider ID 可以与插件 ID 不同。已有部署升级时，原先写死的 `aotian-video`、`juchuang-video`、`nineyapi-video`、`nskeven-video`、`sd25pp-video`、`uutoken-video` 迁移为不开放，见 [后端数据库](/docs/backend/backend-database)。
 
 `POST /api/workbench/tasks` 的视频任务根据已校验的 `references` 推导操作类型，客户端不需要提交泛化的 `video` 操作：
 

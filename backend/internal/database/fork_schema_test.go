@@ -109,3 +109,58 @@ func TestReleaseForkMigrationRefusesWhenLaterRecordsExist(t *testing.T) {
 		t.Fatalf("refused migration must keep the fork record, found %d", count)
 	}
 }
+
+func hiddenPluginRows(t *testing.T, db *gorm.DB) map[string]bool {
+	t.Helper()
+	var rows []model.PluginUserVisibility
+	if err := db.Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	result := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		result[row.PluginID] = row.HiddenFromUsers
+	}
+	return result
+}
+
+// 新库由基线迁移建表，所有插件默认对用户开放；旧库首次建表时把原先写死的仅管理员可见插件写成隐藏，
+// 之后重复迁移不覆盖管理员的修改。
+func TestMigrateSchemaSeedsLegacyAdminOnlyPluginsOnlyForExistingDatabases(t *testing.T) {
+	db := openForkSchemaTestDB(t)
+	if err := MigrateSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if rows := hiddenPluginRows(t, db); len(rows) != 0 {
+		t.Fatalf("fresh database must open every plugin to users, got %v", rows)
+	}
+
+	// 模拟升级前的旧库：基线迁移早已执行，表还不存在。
+	if err := db.Migrator().DropTable(&model.PluginUserVisibility{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	rows := hiddenPluginRows(t, db)
+	if len(rows) != len(forkLegacyAdminOnlyPlugins) {
+		t.Fatalf("legacy database rows = %v, want %v hidden", rows, forkLegacyAdminOnlyPlugins)
+	}
+	for _, pluginID := range forkLegacyAdminOnlyPlugins {
+		if !rows[pluginID] {
+			t.Errorf("%s was not hidden after upgrading a legacy database", pluginID)
+		}
+	}
+
+	if err := db.Model(&model.PluginUserVisibility{}).Where("plugin_id = ?", "aotian-video").Update("hidden_from_users", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if rows := hiddenPluginRows(t, db); rows["aotian-video"] || len(rows) != len(forkLegacyAdminOnlyPlugins) {
+		t.Fatalf("repeated migration changed administrator choices: %v", rows)
+	}
+	if err := RequireSchemaVersion(db); err != nil {
+		t.Fatal(err)
+	}
+}

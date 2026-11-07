@@ -5,6 +5,16 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 插件对用户开放开关
+
+- 已实现：后台插件管理新增“用户可见”列，协议插件（含管理员上传的协议插件）可以设为“仅管理员”，默认对用户开放。设为不开放后，普通用户的插件中心、插件状态、自定义渠道协议目录和插件包下载都不返回它，自定义渠道使用它的协议的生成任务被拒绝，提示“该插件未对普通用户开放”；管理员照常查看、配置和调用，管理员配置的系统渠道模型对所有人可用，平台停用仍对所有人生效。应用和支付插件显示“—”，接口也拒绝设置。概览新增“仅管理员可见”计数，筛选新增“用户可见”，详情弹窗显示可见状态，变更写审计日志。
+- 已实现：取代原先写死在代码里的仅管理员可见名单。新表 `plugin_user_visibilities` 由 `fork_schema.go` 补齐，不占用迁移版本；已有数据库首次建表时把原名单的 6 个视频插件写成隐藏，新库所有插件默认开放。生成任务改为按协议反查所属插件，不再要求 Provider ID 与插件 ID 相同（例如 `minimax-hailuo-video-v2` 的协议是 `minimax-video`）。`juchuang-video`、`nineyapi-video`、`nskeven-video`、`uutoken-video` 的 README 与接口文档删除写死的“仅管理员可见”说明，重新嵌入文档并打包。
+- 已验证：单测覆盖默认开放、仅对普通用户隐藏（插件中心、插件状态、协议目录）、改回开放、非管理员与非协议插件被拒、审计日志、系统渠道放行与自定义渠道拦截、平台停用后拒绝；链路测试加载真实内置插件包，覆盖原名单 6 个插件和 Provider ID 与插件 ID 不同的 `minimax-hailuo-video-v2`；数据库测试覆盖新库全部开放、旧库建表时隐藏原名单、重复迁移不覆盖管理员修改。在 CGO 容器的 LF 副本上，`internal/app`、`database`、`repository`、`handler`、`protocol` 和 `migrate-sqlite-postgres` 测试通过；Web typecheck、lint、插件页相关测试和改动文件格式检查通过。浏览器里的真实页面尚未验证。
+- [ ] 部署确认：升级后打开 `/admin/plugins`，`aotian-video`、`juchuang-video`、`nineyapi-video`、`nskeven-video`、`sd25pp-video`、`uutoken-video` 显示“仅管理员”，其余协议插件显示“对用户开放”。
+- [ ] 管理员把一个协议插件设为“仅管理员”后，普通用户刷新插件中心和自定义渠道协议列表看不到它；普通用户选择使用该协议的系统渠道模型生成，任务正常完成；改回开放后普通用户重新可见。
+- [ ] 普通用户已有使用该协议的自定义渠道时，生成失败并显示“该插件未对普通用户开放”（原提示“该插件仅管理员可用”已改为这句）。
+- [ ] 检查 `/admin/plugins` 新列在浅色 / 深色主题和窄屏横向滚动下的显示，开关保存失败时提示错误且状态不变。
+
 ## 仙凤API 视频协议
 
 - 已实现：独立 `xianfeng-video` 声明式插件（Provider `xianfeng-video`，默认 Base URL `https://xianfengapi.xyz`，不带 `/v1`），只覆盖 `seedance-2.5` 与 `JD2.5满参`。`POST /v1/videos` 只发 JSON：`model`、`prompt`、整数 `seconds`（大于 0 时）、`aspect_ratio`（`adaptive` 转 `auto`）、固定 `resolution: "720p"`；参考素材为 `images: [{url}]`、`videos: [{url, seconds}]`、`audios: [{url, seconds}]`，音视频 `seconds` 取素材库 `durationMs` 向上取整。首帧、尾帧图片按参考图发送（上游没有首尾帧语义）。空值省略。

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -67,6 +68,31 @@ func RegisterPluginRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, gin.H{"state": state})
 	})
+	// 二改：协议插件是否对普通用户开放，见 app/plugin_user_visibility.go。
+	adminRoutes.PUT("/:id/visibility", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		var request struct {
+			VisibleToUsers *bool `json:"visibleToUsers"`
+		}
+		if err := c.ShouldBindJSON(&request); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		if request.VisibleToUsers == nil {
+			fail(c, http.StatusBadRequest, errors.New("缺少 visibleToUsers"))
+			return
+		}
+		state, err := svc.SetPluginUserVisibility(user, c.Param("id"), *request.VisibleToUsers)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"state": state})
+	})
 	pluginRoutes := r.Group("/plugins")
 	pluginRoutes.Use(requirePluginCenterAccess(svc))
 	// The frontend plugin center is the single management surface. Protocol
@@ -97,7 +123,12 @@ func RegisterPluginRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		scope := strings.TrimSpace(c.DefaultQuery("scope", "user.custom-channel"))
 		capability := strings.TrimSpace(c.Query("capability"))
-		ok(c, gin.H{"providers": svc.PluginProviderCatalogForUser(user, scope, capability, false)})
+		providers, err := svc.PluginProviderCatalogForUser(user, scope, capability, false)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"providers": providers})
 	})
 	pluginRoutes.POST("", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

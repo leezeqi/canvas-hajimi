@@ -16,7 +16,8 @@ func TestApplicationPluginUsesUserStateUnderPlatformAvailability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.PluginPlatformState{}, &model.UserPluginState{}, &model.AdminAuditEvent{}); err != nil {
+	// PluginUserVisibility：二改的插件对用户开放开关，PluginStatesForUser 会读取它。
+	if err := db.AutoMigrate(&model.PluginPlatformState{}, &model.UserPluginState{}, &model.AdminAuditEvent{}, &model.PluginUserVisibility{}); err != nil {
 		t.Fatal(err)
 	}
 	center, err := newPluginRuntime(t.TempDir())
@@ -109,7 +110,8 @@ func TestEditorShellReportsPlatformAvailableWithoutPlatformState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.PluginPlatformState{}, &model.UserPluginState{}, &model.AdminAuditEvent{}); err != nil {
+	// PluginUserVisibility：二改的插件对用户开放开关，PluginStatesForUser 会读取它。
+	if err := db.AutoMigrate(&model.PluginPlatformState{}, &model.UserPluginState{}, &model.AdminAuditEvent{}, &model.PluginUserVisibility{}); err != nil {
 		t.Fatal(err)
 	}
 	center, err := newPluginRuntime(t.TempDir())

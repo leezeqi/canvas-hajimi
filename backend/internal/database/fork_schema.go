@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"yingce/backend/internal/model"
 
@@ -52,12 +53,38 @@ func releaseForkMigrationVersions(tx *gorm.DB) error {
 	return nil
 }
 
+// forkLegacyAdminOnlyPlugins 是"对用户开放"开关上线前写死在代码里的仅管理员可见插件。
+// 只在旧库首次建 plugin_user_visibilities 表时写成隐藏，保持升级前的行为；之后由管理员在插件管理里调整。
+var forkLegacyAdminOnlyPlugins = []string{
+	"aotian-video",
+	"juchuang-video",
+	"nineyapi-video",
+	"nskeven-video",
+	"sd25pp-video",
+	"uutoken-video",
+}
+
 // applyForkSchema 幂等补齐二改需要的列，在上游迁移全部执行后调用。
 func applyForkSchema(tx *gorm.DB) error {
 	// tasks.user_deleted_at：用户从作品列表删除终态任务；旧任务为 NULL，仍在列表中可见。
 	if tx.Migrator().HasTable(&model.Task{}) && !tx.Migrator().HasColumn(&model.Task{}, "UserDeletedAt") {
 		if err := tx.Migrator().AddColumn(&model.Task{}, "UserDeletedAt"); err != nil {
 			return fmt.Errorf("补齐二改任务删除列：%w", err)
+		}
+	}
+	// plugin_user_visibilities：插件是否对普通用户开放，没有记录即开放。新库由基线迁移按 Models() 建表，
+	// 所有插件默认开放；旧库在这里建表，并把原先写死的仅管理员可见插件写成隐藏。
+	if !tx.Migrator().HasTable(&model.PluginUserVisibility{}) {
+		if err := tx.Migrator().CreateTable(&model.PluginUserVisibility{}); err != nil {
+			return fmt.Errorf("创建二改插件用户可见性表：%w", err)
+		}
+		now := time.Now().UTC()
+		rows := make([]model.PluginUserVisibility, 0, len(forkLegacyAdminOnlyPlugins))
+		for _, pluginID := range forkLegacyAdminOnlyPlugins {
+			rows = append(rows, model.PluginUserVisibility{PluginID: pluginID, HiddenFromUsers: true, CreatedAt: now, UpdatedAt: now})
+		}
+		if err := tx.Create(&rows).Error; err != nil {
+			return fmt.Errorf("迁移仅管理员可见插件：%w", err)
 		}
 	}
 	return nil

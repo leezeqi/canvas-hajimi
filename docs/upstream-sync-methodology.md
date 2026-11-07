@@ -77,7 +77,7 @@ git remote -v
 | --- | --- | --- | --- |
 | 聚创视频、失败原因、Responses、渠道模型删除 | `4f6eb045`、`088c95c7`、`0871bc6b` | 新增聚创引擎视频插件 `juchuang-video`；任务列表返回真实失败原因，过滤后的上游原因接在分类后面展示，工作台失败卡片可以展开；Responses 协议包升级到 2.0.2，新增 `$join` 表达式；删除渠道模型时，引用检查排除已归档的前台模型 | `backend/internal/app/` 下的 `cloud_agent_user_errors.go`、`provider_errors.go`、`provider_protocol_async.go`、`provider_protocol_result.go`、`task_output.go`；`backend/internal/protocol/expression.go`、`manifest_adapter.go`；`backend/internal/repository/finance_channel_models.go`、`repository_tasks.go`；`plugin-packages/generate-catalog.mjs`；`plugin-packages/openai-responses/*`（含 `.yingce-plugin`）；`web/src/lib/generation-error.ts`；`web/src/services/api/task-center.ts`；`web/src/pages/workbench/workbench-gallery.tsx`、`workbench.css` |
 | 第三方视频声明式插件 | `4c647a9a`、`ea88698d`、`9ea0ce2e`、`350d4980`、`24ac73a1`、`1d11ab7d`、`e445a9bb`，以及新增 `xianfeng-video` 的提交 | `aotian-video`、`sd25pp-video`（含比例类失败原因提示）、`nineyapi-video`、`navivo-video`、`nskeven-video`、`uutoken-video`、`xianfeng-video`，都是新增的手写插件目录 | 基本是新增文件；`backend/internal/protocol/official_catalog_test.go` |
-| 仅管理员可见的插件 | `111cdc15`、`a41a4bf3`、`8867bb58`、`68efbefe`、`69b04c69`、`880ffc0d` | 上面 6 个视频插件与 `juchuang-video` 对普通用户隐藏（插件中心、插件状态、协议目录、自定义渠道），经管理员配置的系统渠道可以正常调用 | `backend/internal/app/plugin_management.go`、`protocol_registry.go`、`provider.go`、`feature_availability_test.go`、`protocol_runtime_test.go`；`backend/internal/handler/plugin.go` |
+| 插件对用户开放开关 | `111cdc15`、`a41a4bf3`、`8867bb58`、`68efbefe`、`69b04c69`、`880ffc0d`，以及改成后台开关的提交 | 管理员在 `/admin/plugins` 把协议插件设为仅管理员可见：普通用户的插件中心、插件状态、协议目录、插件包下载和自定义渠道都看不到它，管理员配置的系统渠道照常可用。状态存 `plugin_user_visibilities`（`fork_schema.go` 建表，旧库建表时把原先写死的 6 个视频插件写成隐藏）；生成任务按协议反查所属插件。二改逻辑集中在新文件 `backend/internal/app/plugin_user_visibility.go`、`plugin_user_visibility_test.go`、`backend/internal/repository/plugin_visibility.go`、`backend/internal/model/models_plugin_visibility.go` | `backend/internal/app/plugin_management.go`、`protocol_registry.go`、`provider.go`、`feature_availability_test.go`、`plugin_management_test.go`（测试建表各加一个模型）；`backend/internal/handler/plugin.go`；`backend/internal/database/schema.go`、`fork_schema.go`；`backend/cmd/migrate-sqlite-postgres/main.go`；`web/src/services/api/plugins.ts`；`web/src/pages/admin/plugins/plugins-page.tsx`、`plugin-detail-modal.tsx` |
 | 作品删除 | `f8789d3c`、`83a10123` | 创作页可以删除单条图像 / 视频生成记录；生图与视频工作台可以删除作品记录（`DELETE /api/tasks/:id`，写 `tasks.user_deleted_at`） | `web/src/pages/create/index.tsx`、`creation-workspace-messages.tsx`；`web/src/pages/workbench/image-workbench-page.tsx`；`web/src/styles/globals.css`；`backend/internal/app/task_lifecycle.go`；`backend/internal/handler/routes.go`；`backend/internal/model/models_task.go`；`backend/internal/database/migrations.go`（只在 `MigrateSchema` 里加了两行调用，见第四节第 2 小节） |
 | 作品保存多候选地址 | `51432ae1` | 结果地址按换行拆成多个候选，依次下载；地址解析失败不再当成网络错误空等重试 | `backend/internal/app/provider_protocol_result.go`、`task_media_recovery.go`、`task_media_storage.go`；`backend/internal/storage/errors.go` |
 | Windows 一键源码部署 | `ac0db8ac`、`7ef7441d`、`2dccf1e7`、`3641fef5`、`03de3aa1`、`b796cecb` | Windows 入口脚本、远端只读检查、源码构建、备份与回退 | `.gitattributes`、`.gitignore`、`Dockerfile` |
@@ -89,10 +89,10 @@ git remote -v
 ```powershell
 Push-Location backend
 go test ./internal/protocol -run 'Juchuang|Aotian|SD25PP|NineYAPI|Navivo|Nskeven|UUToken|Xianfeng|OfficialResponsesNestedOutputText|ManifestJoin'
-go test ./internal/app -run 'Juchuang|Aotian|AdminOnlyPlugins|TaskSummaryReturnsSafeFailureReason|TextResponseErrorsAreNotNetworkErrors|ResponsesSynchronousGenerationReadsNestedOutput|DeleteTask|MediaURLCandidates|DownloadTaskMedia'
+go test ./internal/app -run 'Juchuang|Aotian|PluginUserVisibility|ProviderProtocolPlugin|HiddenPlugins|TaskSummaryReturnsSafeFailureReason|TextResponseErrorsAreNotNetworkErrors|ResponsesSynchronousGenerationReadsNestedOutput|DeleteTask|MediaURLCandidates|DownloadTaskMedia'
 go test ./internal/repository -run TestDeleteChannelModelsArchivedReferences
 go test ./internal/storage -run TestClassifyErrorURLParseIsNotTransient
-go test ./internal/database -run 'ForkTaskDeletion|ForkV79|ReleaseForkMigration'
+go test ./internal/database -run 'ForkTaskDeletion|ForkV79|ReleaseForkMigration|LegacyAdminOnlyPlugins'
 Pop-Location
 Push-Location web
 bun test test/workbench-failure-reason.test.tsx test/generation-error-details.test.ts

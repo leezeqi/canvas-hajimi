@@ -4,7 +4,6 @@
 
 - 插件 ID：`uutoken-video`。
 - Provider ID：`uutoken-video`（与插件 ID 相同）。
-- 可见性：仅管理员可见，与 `aotian-video`、`sd25pp-video` 相同。普通用户的插件中心、插件状态和协议目录不返回该插件，自定义渠道也不能使用；管理员把它配置到系统渠道模型后，普通用户可以通过该系统渠道正常生成，插件被平台停用时一并失败。
 - 能力：`video`。
 - 默认 Base URL：`https://uutoken.sbs`，末尾不要带 `/v1`（接口路径已包含 `/v1`）。
 - 鉴权：`Authorization: Bearer <apiKey>`，使用 UUToken 令牌（`sk-` 开头）。

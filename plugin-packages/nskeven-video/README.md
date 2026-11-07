@@ -6,6 +6,4 @@
 
 插件声明 `requiresPublicMediaUrls`：宿主先把站内素材换成签名 URL 再提交，上游必须能从公网访问这些地址，且响应头 `Content-Type` 与实际类型一致。图片模型（`/v1/images/generations`）不在本插件范围，使用 `openai-images` 协议另建渠道，并使用图片分组的令牌。
 
-插件仅管理员可见：普通用户看不到它，也不能在自定义渠道中使用；管理员配置到系统渠道后，普通用户可以通过该系统渠道正常生成。
-
 完整接口见 [docs/interface.md](docs/interface.md)。
