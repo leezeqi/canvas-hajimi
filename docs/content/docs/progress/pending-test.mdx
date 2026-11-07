@@ -5,6 +5,17 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## UUToken 视频协议
+
+- 已实现：独立 `uutoken-video` 声明式插件（Provider `uutoken-video`，默认 Base URL `https://uutoken.sbs`，不带 `/v1`），`POST /v1/videos` 只发 JSON。按模型名（去首尾空白转小写，包含匹配）切换请求体：通用格式发送整数 `seconds`、`aspect_ratio`、小写 `resolution`、`images`/`videos`/`audios` URL 字符串数组，`hss-` 改发 `ratio`，`seadanco`、`dreamina-seedance` 不发分辨率；`sd2.5-gf` 发数字 `duration`，画幅与素材写入 `metadata.payload` JSON 字符串（有首尾帧时 `mode=frames`，只发 `firstFrameUrl`/`lastFrameUrl`）；`kling-` 发 `start_frame`/`end_frame` 和大写分辨率，`kling-o3` 另发 `reference_images`、`input_video`；`sora-v3` 发字符串 `seconds` 和 `image_urls`/`video_urls`/`audio_urls`，分辨率缺省 `720p`；`gemini-omni` 首帧进 `images`、其他图片进 `reference_images`、第 1 个视频进 `input_video`，不发分辨率；`Seedance-2.0-full` 发 `ratio`，有首尾帧时发 `first_frame`/`last_frame`。空值省略。
+- 已实现：声明 `requiresPublicMediaUrls` 与 `detachedPolling`；提交前校验提示词、时长 0 或 2–30、画幅与分辨率枚举、尾帧须搭配首帧，以及 kling、sora-v3、gemini-omni-flash、首尾帧模式的专属限制。查询 `GET /v1/videos/{id}`，成功后依次取 `video_url`、`url`、`result_url`、`data.video_url`、`data.url`，都没有时走 `/v1/videos/{id}/content` 带 Key 下载。
+- 已验证：协议单测覆盖六种模型族请求体、排序、默认省略、校验拦截、`NOT_START`/`IN_PROGRESS`/`SUCCESS`/`FAILURE` 状态与结果映射；`internal/protocol` 全包通过。未用真实 Key 联调。
+- [ ] 真实渠道：`seedance-2.0-g3` 或 `mg-sd25-1-pro` 文生视频与参考图生视频各一次，确认建单、轮询、成片持久化，以及查询响应实际返回的状态值和视频字段名。
+- [ ] `hss-2.0-933-渠道A` 或 `wan3-Prime` 带图片、视频、音频混合参考生成一次，确认 URL 字符串数组和 `ratio` 被上游接受；确认宿主签名素材地址可被上游直接拉取。
+- [ ] `sd2.5-gf-720p` 参考模式和首尾帧模式各一次，确认 `metadata.payload` 被接受、`video_url` 直链可下载。
+- [ ] `kling-v3` 首尾帧、`sora-v3-933-pro` 10 秒、`gemini-omni-flash` 首帧各一次，确认专属字段被接受。
+- [ ] 确认上游对未声明字段的处理（忽略还是 400），以及无直链时 `/content` 的下载可用。
+
 ## nskeven NewAPI 视频协议
 
 - 已实现：独立 `nskeven-video` 声明式插件（Provider `nskeven-video`，默认 Base URL `https://newapi.nskeven.uk`，不带 `/v1`），`POST /v1/video/generations` 只发 JSON，`seconds` 以字符串发送，空值省略。按模型名（去空格转小写）切换三种请求体：包含 `doubao-seedance` 的豆包模型把分辨率、画幅、声音、水印和全部素材写进 `metadata`（素材为 `metadata.content` 的 `image_url` / `video_url` / `audio_url` 项，带 `reference_image` / `first_frame` / `last_frame` / `reference_video` / `reference_audio` 角色），顶层不发这些字段；包含 `sd-2-`、`sd-2.5-`、`wan-3.0-` 的快线模型参考图在顶层 `images`，参考视频、音频写在 `metadata.videos` / `metadata.audios`；其余模型全部用顶层扁平字段。首帧、尾帧图片单独发 `first_frame_url` / `last_frame_url`，不进 `images`。`even-sd2.0-A` / `even-sd2.5-A` 会把画布的 `@图片N` 改写为上游要求的 `@图N`。
