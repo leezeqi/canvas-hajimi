@@ -5,6 +5,15 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 仙凤API 视频协议
+
+- 已实现：独立 `xianfeng-video` 声明式插件（Provider `xianfeng-video`，默认 Base URL `https://xianfengapi.xyz`，不带 `/v1`），只覆盖 `seedance-2.5` 与 `JD2.5满参`。`POST /v1/videos` 只发 JSON：`model`、`prompt`、整数 `seconds`（大于 0 时）、`aspect_ratio`（`adaptive` 转 `auto`）、固定 `resolution: "720p"`；参考素材为 `images: [{url}]`、`videos: [{url, seconds}]`、`audios: [{url, seconds}]`，音视频 `seconds` 取素材库 `durationMs` 向上取整。首帧、尾帧图片按参考图发送（上游没有首尾帧语义）。空值省略。
+- 已实现：声明 `requiresPublicMediaUrls` 与 `detachedPolling`，不声明 `idempotentCreate`（上游要求建单超时不要重复提交）。提交前校验提示词非空且不超过 45000 字、模型名含 `wan3` 时拒绝、画幅枚举、分辨率只允许 720p、素材数量（图片 ≤30、视频 ≤10、音频 ≤10、合计 ≤30）、输出时长 4–30 秒（带音视频或图片超过 9 张时 5–30 秒）、每条参考音视频 2–30 秒且必须有时长。音视频总时长 ≤30 秒无法用表达式求和，交给上游校验。查询 `GET /v1/videos/{id}`，成功且 `url` 为绝对地址时直接用；否则（含 JD2.5满参 只给 `content_url` 的情况）走 `/v1/videos/{id}/content` 带 Key 下载。
+- 已验证：协议单测覆盖请求体、排序、时长换算、默认省略、15 个校验拦截（逐条比对提示）与 3 个边界放行、状态与阶段映射、直链与相对地址、失败原因和结果下载；`go test ./internal/protocol -run Xianfeng` 通过。未用真实 Key 联调。
+- [ ] 真实渠道：`seedance-2.5` 文生视频一次、带参考图一次，确认建单、轮询、成片持久化，以及完成响应实际返回 `url` 还是只有 `content_url`。
+- [ ] `JD2.5满参` 带图片、视频、音频混合参考生成一次，确认对象数组与向上取整的 `seconds` 被上游接受；确认宿主签名素材地址可被上游直接拉取（上游 HTTP 链接只允许 80/8091 端口）。
+- [ ] 确认 `/content` 的 302 跳转下载可用；画布里首帧连线的图片按参考图生成，效果符合预期。
+
 ## UUToken 视频协议
 
 - 已实现：独立 `uutoken-video` 声明式插件（Provider `uutoken-video`，默认 Base URL `https://uutoken.sbs`，不带 `/v1`），`POST /v1/videos` 只发 JSON。按模型名（去首尾空白转小写，包含匹配）切换请求体：通用格式发送整数 `seconds`、`aspect_ratio`、小写 `resolution`、`images`/`videos`/`audios` URL 字符串数组，`hss-` 改发 `ratio`，`seadanco`、`dreamina-seedance` 不发分辨率；`sd2.5-gf` 发数字 `duration`，画幅与素材写入 `metadata.payload` JSON 字符串（有首尾帧时 `mode=frames`，只发 `firstFrameUrl`/`lastFrameUrl`）；`kling-` 发 `start_frame`/`end_frame` 和大写分辨率，`kling-o3` 另发 `reference_images`、`input_video`；`sora-v3` 发字符串 `seconds` 和 `image_urls`/`video_urls`/`audio_urls`，分辨率缺省 `720p`；`gemini-omni` 首帧进 `images`、其他图片进 `reference_images`、第 1 个视频进 `input_video`，不发分辨率；`Seedance-2.0-full` 发 `ratio`，有首尾帧时发 `first_frame`/`last_frame`。空值省略。
