@@ -108,13 +108,15 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 		t.Fatal(err)
 	}
 	svc.pluginRuntime = &pluginRuntime{plugins: map[string]pluginRecord{
-		"bundled":          {Source: "bundled", Metadata: protocol.Metadata{ID: "bundled", Name: "系统协议", Version: "1"}},
-		"uploaded":         {Source: "uploaded", Metadata: protocol.Metadata{ID: "uploaded", Name: "自定义协议", Version: "1"}},
-		"app":              {Source: "bundled", Metadata: protocol.Metadata{ID: WorkflowPluginRunningHub, Name: "官方应用", Version: "1"}},
-		PluginAotianVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginAotianVideo, Name: "傲天 Seedance 视频", Version: "1"}},
-		PluginSD25PPVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginSD25PPVideo, Name: "SD2.5PP 全能参考视频", Version: "1"}},
-		PluginNskevenVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginNskevenVideo, Name: "nskeven 视频", Version: "1"}},
-		PluginUUTokenVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginUUTokenVideo, Name: "UUToken 视频", Version: "1"}},
+		"bundled":           {Source: "bundled", Metadata: protocol.Metadata{ID: "bundled", Name: "系统协议", Version: "1"}},
+		"uploaded":          {Source: "uploaded", Metadata: protocol.Metadata{ID: "uploaded", Name: "自定义协议", Version: "1"}},
+		"app":               {Source: "bundled", Metadata: protocol.Metadata{ID: WorkflowPluginRunningHub, Name: "官方应用", Version: "1"}},
+		PluginAotianVideo:   {Source: "bundled", Metadata: protocol.Metadata{ID: PluginAotianVideo, Name: "傲天 Seedance 视频", Version: "1"}},
+		PluginSD25PPVideo:   {Source: "bundled", Metadata: protocol.Metadata{ID: PluginSD25PPVideo, Name: "SD2.5PP 全能参考视频", Version: "1"}},
+		PluginNskevenVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginNskevenVideo, Name: "nskeven 视频", Version: "1"}},
+		PluginUUTokenVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginUUTokenVideo, Name: "UUToken 视频", Version: "1"}},
+		PluginJuchuangVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginJuchuangVideo, Name: "聚创引擎视频", Version: "1"}},
+		PluginNineYAPIVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginNineYAPIVideo, Name: "9Y API 视频", Version: "1"}},
 	}}
 
 	visibleToUser, err := svc.PluginsForUser(&model.User{ID: "user-1", Role: model.UserRoleUser})
@@ -143,13 +145,13 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(visibleToAdmin) != 7 {
+	if len(visibleToAdmin) != 9 {
 		t.Fatalf("PluginsForUser(admin) = %#v", visibleToAdmin)
 	}
 }
 
 func TestProviderProtocolPluginAllowsAdminOnlyPluginsForUsersOnlyThroughSystemChannels(t *testing.T) {
-	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo, PluginNskevenVideo, PluginUUTokenVideo} {
+	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo, PluginNskevenVideo, PluginUUTokenVideo, PluginJuchuangVideo, PluginNineYAPIVideo} {
 		t.Run(pluginID, func(t *testing.T) {
 			svc, db := newFeatureAvailabilityTestService(t)
 			if err := db.AutoMigrate(&model.User{}, &model.PluginPlatformState{}); err != nil {

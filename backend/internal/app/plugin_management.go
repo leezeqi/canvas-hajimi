@@ -19,6 +19,8 @@ const (
 	PluginAotianVideo         = "aotian-video"
 	PluginSD25PPVideo         = "sd25pp-video"
 	PluginNskevenVideo        = "nskeven-video"
+	PluginJuchuangVideo       = "juchuang-video"
+	PluginNineYAPIVideo       = "nineyapi-video"
 	PluginUUTokenVideo        = "uutoken-video"
 
 	PluginOriginOfficial = "official"
@@ -112,10 +114,12 @@ var systemPaymentPolicies = map[string]PluginManagementView{
 // adminOnlyPlugins 只对普通用户隐藏，不禁止调用管理员配好的系统渠道（见 requireProviderProtocolPlugin）。
 // 生成任务按渠道协议 ID 匹配，因此这些插件的 Provider ID 必须与插件 ID 相同。
 var adminOnlyPlugins = map[string]bool{
-	PluginAotianVideo:  true,
-	PluginSD25PPVideo:  true,
-	PluginNskevenVideo: true,
-	PluginUUTokenVideo: true,
+	PluginAotianVideo:   true,
+	PluginSD25PPVideo:   true,
+	PluginNskevenVideo:  true,
+	PluginUUTokenVideo:  true,
+	PluginJuchuangVideo: true,
+	PluginNineYAPIVideo: true,
 }
 
 func isAdminOnlyPlugin(pluginID string) bool {
