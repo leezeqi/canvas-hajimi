@@ -27,7 +27,7 @@ git merge-base main upstream/main
 
 1. 本地 `main` 包含选定的上游基线（`git merge-base --is-ancestor <上游基线> main` 退出码为 0），第四节二改清单中的功能逐项保留。
 2. 派生文件都由生成器产生且与源码一致，包括画布生成契约 `web/src/lib/canvas/generation-contract.generated.ts`，以及受影响插件的 `manifest.json`、`docs/interface.md` 和 `.yingce-plugin` 包。
-3. `bun scripts/verify-before-push.mjs` 按默认范围运行通过，交付记录里写下脚本的总结行和“本地未覆盖”项。
+3. `bun scripts/verify-before-push.mjs` 按默认范围运行通过，交付记录里写下脚本的总结行和“本地未覆盖”项。本机缺少 Bun、cgo 或 LF 检出时，按第三节的容器方式做等价检查，并在同步记录里逐项写明。
 4. `git ls-remote origin refs/heads/main` 返回本地目标提交的哈希。
 5. 推送触发的 GitHub Actions「Publish container images」运行通过（它内部会调用「Quality checks」）。
 6. 工作区干净，同步分支已删除或说明了保留原因，同步记录已追加到第十节。
@@ -57,29 +57,49 @@ git remote -v
 - `--no-tags`：上游的发布标签格式是 `v*`。本仓库的 `.github/workflows/publish-images.yml` 收到推送的 `v*` 标签后会正式发版：校验 `VERSION` 和 `CHANGELOG.md`，推广镜像标签，创建 GitHub Release。上游标签一旦进入本仓库，又被 `git push --tags` 或 `--follow-tags` 带出去，就会在本仓库误发版。需要查上游版本时，一律在上游目录执行 `git -C D:/open-ai-canvas describe --tags`。
 - `upstream` 指向本地上游目录时，`upstream/main` 等于该目录的本地 `main`，所以每次同步前要先在上游目录执行 `pull --ff-only`。也可以把 `upstream` 改成 `https://github.com/ddcat-ai/open-ai-canvas.git`，省掉这一步，其余流程不变。
 
+### 本机缺少工具时的容器验证
+
+本机（Windows）有三个限制：PATH 里没有 Go 和 Bun；没有 C 编译器，`go-sqlite3` 报 `requires cgo`，依赖 SQLite 的用例都跑不起来；检出用的是 `core.autocrlf=true`，工作区全是 CRLF，`gofmt -l .` 会把几乎所有 Go 文件都列出来。这时 `verify-before-push.mjs` 跑不完，改用下面的等价方式，并在同步记录里写明：
+
+1. `go generate` 这类不需要 cgo 的命令，可以直接用模块缓存里的工具链：`$env:Path = "$env:USERPROFILE\go\pkg\mod\golang.org\toolchain@v0.0.1-go<版本>.windows-amd64\bin;$env:Path"`，再设 `$env:GOTOOLCHAIN = "local"`。
+2. 先在同步分支提交合并，再导出成 LF 换行的目录：`git -c core.autocrlf=false archive <提交> | tar -x -C <临时目录>`。容器挂载这个目录，不挂载工作区。
+3. 后端：用 `local/go-cgo:1.25` 镜像（Alpine，带 gcc，没有 git），挂载 `hajimi-gomod` 和 `hajimi-gocache` 卷，在 `backend/` 下依次运行 `gofmt -l .`、非 `internal/app` 包的 `go test`，以及 `internal/app` 按 `go test -list .` 的结果分 4 片执行，和 `verify-before-push.mjs` 的口径一致。
+4. Web：用 `oven/bun:1.3.9` 镜像，把 `hajimi-web-node-modules` 卷挂到 `web/node_modules`，把 `hajimi-bun-cache` 卷挂到 `/root/.bun/install/cache`。依次运行 `bun install --frozen-lockfile`、`bun run typecheck`、`bun run lint`、`bun run test`。容器里没有 git，格式检查改为：在宿主机算出 `git diff --relative=web --name-only --diff-filter=ACMR origin/main <提交> -- web` 的文件列表，并导出 `origin/main` 的 `web/` 目录，在容器里用 `web/node_modules/prettier` 逐个检查。基线版本本来就没有格式化的文件跳过，规则与 `web/scripts/check-changed-formatting.mjs` 相同。
+5. 这种方式覆盖不到 `golangci-lint`、预演台 E2E（只有 `previs` 相关改动时才需要）以及 PostgreSQL / Redis 用例，这些由推送后的 CI 兜底。
+
 ## 四、二改边界与清单
 
 ### 1. 当前二改清单
 
-截至 2026-11-04，与上游的共同祖先是 `4d25e4a5`。
+截至 2026-11-07（上游 `v1.8.2` 同步之后），与上游的共同祖先是 `cd2512eb`。二改按功能分组如下，提交按时间先后排列：
 
-| 提交 | 内容 | 改动过的上游文件（冲突热点） |
-| --- | --- | --- |
-| `4f6eb045` | 新增聚创引擎视频插件 `juchuang-video`；任务列表返回经过过滤的失败原因，工作台失败卡片可以展开查看；Responses 协议包升级到 2.0.2，新增 `$join` 表达式；删除渠道模型时，引用检查排除已归档的前台模型 | `backend/internal/app/` 下的 `cloud_agent_user_errors.go`、`provider_errors.go`、`provider_protocol_async.go`、`provider_protocol_result.go`、`task_output.go`；`backend/internal/protocol/expression.go`、`manifest_adapter.go`；`backend/internal/repository/finance_channel_models.go`；`plugin-packages/generate-catalog.mjs`；`plugin-packages/openai-responses/*`（含 `.yingce-plugin`）；`web/src/lib/generation-error.ts`；`web/src/pages/workbench/workbench-gallery.tsx`、`workbench.css`；`docs/content/docs/backend/http-api.mdx`；`docs/content/docs/progress/pending-test.mdx` |
-| `4c647a9a` | 新增傲天 Seedance 视频插件 `aotian-video`：只发 JSON，参考素材必须是公网 HTTPS 链接，提交后分离式查询任务 | 只改了 `http-api.mdx` 和 `pending-test.mdx`，其余都是新增文件 |
+| 功能 | 提交 | 内容 | 改动过的上游文件（冲突热点） |
+| --- | --- | --- | --- |
+| 聚创视频、失败原因、Responses、渠道模型删除 | `4f6eb045`、`088c95c7`、`0871bc6b` | 新增聚创引擎视频插件 `juchuang-video`；任务列表返回真实失败原因，过滤后的上游原因接在分类后面展示，工作台失败卡片可以展开；Responses 协议包升级到 2.0.2，新增 `$join` 表达式；删除渠道模型时，引用检查排除已归档的前台模型 | `backend/internal/app/` 下的 `cloud_agent_user_errors.go`、`provider_errors.go`、`provider_protocol_async.go`、`provider_protocol_result.go`、`task_output.go`；`backend/internal/protocol/expression.go`、`manifest_adapter.go`；`backend/internal/repository/finance_channel_models.go`、`repository_tasks.go`；`plugin-packages/generate-catalog.mjs`；`plugin-packages/openai-responses/*`（含 `.yingce-plugin`）；`web/src/lib/generation-error.ts`；`web/src/services/api/task-center.ts`；`web/src/pages/workbench/workbench-gallery.tsx`、`workbench.css` |
+| 第三方视频声明式插件 | `4c647a9a`、`ea88698d`、`9ea0ce2e`、`350d4980`、`24ac73a1`、`1d11ab7d`、`e445a9bb` | `aotian-video`、`sd25pp-video`（含比例类失败原因提示）、`nineyapi-video`、`navivo-video`、`nskeven-video`、`uutoken-video`，都是新增的手写插件目录 | 基本是新增文件；`backend/internal/protocol/official_catalog_test.go` |
+| 仅管理员可见的插件 | `111cdc15`、`a41a4bf3`、`8867bb58`、`68efbefe`、`69b04c69`、`880ffc0d` | 上面 6 个视频插件与 `juchuang-video` 对普通用户隐藏（插件中心、插件状态、协议目录、自定义渠道），经管理员配置的系统渠道可以正常调用 | `backend/internal/app/plugin_management.go`、`protocol_registry.go`、`provider.go`、`feature_availability_test.go`、`protocol_runtime_test.go`；`backend/internal/handler/plugin.go` |
+| 作品删除 | `f8789d3c`、`83a10123` | 创作页可以删除单条图像 / 视频生成记录；生图与视频工作台可以删除作品记录（`DELETE /api/tasks/:id`，写 `tasks.user_deleted_at`） | `web/src/pages/create/index.tsx`、`creation-workspace-messages.tsx`；`web/src/pages/workbench/image-workbench-page.tsx`；`web/src/styles/globals.css`；`backend/internal/app/task_lifecycle.go`；`backend/internal/handler/routes.go`；`backend/internal/model/models_task.go`；`backend/internal/database/migrations.go`（只在 `MigrateSchema` 里加了两行调用，见第四节第 2 小节） |
+| 作品保存多候选地址 | `51432ae1` | 结果地址按换行拆成多个候选，依次下载；地址解析失败不再当成网络错误空等重试 | `backend/internal/app/provider_protocol_result.go`、`task_media_recovery.go`、`task_media_storage.go`；`backend/internal/storage/errors.go` |
+| Windows 一键源码部署 | `ac0db8ac`、`7ef7441d`、`2dccf1e7`、`3641fef5`、`03de3aa1`、`b796cecb` | Windows 入口脚本、远端只读检查、源码构建、备份与回退 | `.gitattributes`、`.gitignore`、`Dockerfile` |
+
+`docs/content/docs/progress/pending-test.mdx`、`overview/features.mdx`、`backend/http-api.mdx`、`backend/backend-database.mdx` 和 `docs/index.md` 几乎每个二改都会碰，按第六节的规则处理。
 
 同步后用下面的命令回归二改功能：
 
 ```powershell
 Push-Location backend
-go test ./internal/protocol -run 'Juchuang|Aotian|OfficialResponsesNestedOutputText|ManifestJoin'
-go test ./internal/app -run 'Juchuang|Aotian|TaskSummaryReturnsSafeFailureReason|TextResponseErrorsAreNotNetworkErrors|ResponsesSynchronousGenerationReadsNestedOutput'
+go test ./internal/protocol -run 'Juchuang|Aotian|SD25PP|NineYAPI|Navivo|Nskeven|UUToken|OfficialResponsesNestedOutputText|ManifestJoin'
+go test ./internal/app -run 'Juchuang|Aotian|AdminOnlyPlugins|TaskSummaryReturnsSafeFailureReason|TextResponseErrorsAreNotNetworkErrors|ResponsesSynchronousGenerationReadsNestedOutput|DeleteTask|MediaURLCandidates|DownloadTaskMedia'
 go test ./internal/repository -run TestDeleteChannelModelsArchivedReferences
+go test ./internal/storage -run TestClassifyErrorURLParseIsNotTransient
+go test ./internal/database -run 'ForkTaskDeletion|ForkV79|ReleaseForkMigration'
 Pop-Location
 Push-Location web
-bun test test/workbench-failure-reason.test.tsx
+bun test test/workbench-failure-reason.test.tsx test/generation-error-details.test.ts
 Pop-Location
 ```
+
+这些用例大多依赖 SQLite（cgo）。本机没有 C 编译器时按第三节的容器方式运行。
 
 清单要随实际情况维护：新的二改落地后补一行；二改被上游吸收后删掉对应行。本仓库独有的提交可以这样列出来：
 
@@ -92,7 +112,8 @@ git log --oneline --no-merges upstream/main..main
 ### 2. 二改约定（让后续同步保持简单）
 
 - **优先新增，少改上游文件。** 新能力尽量做成独立插件目录（`plugin-packages/<id>/`）、新文件和新测试；必须改上游文件时，改动要小而集中。
-- **不新增数据库迁移。** 迁移在 `backend/internal/database/migrations.go` 里按整数版本线性登记，`CurrentSchemaVersion` 在本仓库是 78，上游 `main` 已经到 81。程序启动时会逐个版本核对名称和校验和。假如二改占用了 79，上游后来的 79 部署后就会报“数据库迁移 79 名称不一致/校验和不一致”，拒绝启动。确实需要改表时，先提交给上游，或者先和上游约定好版本号。
+- **不新增数据库迁移版本。** 迁移在 `backend/internal/database/migrations.go` 里按整数版本线性登记，版本号只跟随上游（2026-11-07 同步后为 91）。程序启动时会逐个版本核对名称和校验和，二改占用的版本号迟早会和上游撞号，部署时报“数据库迁移 N 名称不一致/校验和不一致”，拒绝启动。二改需要加列或建表时，写进 `backend/internal/database/fork_schema.go` 的 `applyForkSchema`：用 `HasTable` / `HasColumn` 判断后幂等补齐，不登记到 `schemaMigrations`，也不改 `CurrentSchemaVersion`。它在上游迁移全部执行完之后运行，所以只能做“补列、建新表”这类不依赖执行顺序的改动；需要改写数据、改列类型或删列时，先和上游商量。
+  - 这条规则是吃过亏才定下的：`83a10123` 曾把 `tasks.user_deleted_at` 登记为迁移 79 `task_user_deletion`，结果和上游的 79 `ecommerce_agent_and_knowledge` 撞号。2026-11-07 同步时把它迁到了 `fork_schema.go`，同时用 `releaseForkMigrationVersions` 释放旧账本记录：账本里的 79 是这条二改记录（名称和校验和都匹配）、而且之后没有其他记录时，先删掉这条记录（列保留），再执行上游的 79–91。`migrations.go` 里只为此在 `MigrateSchema` 中加了两行调用，以后同步遇到冲突时保留这两行即可。
 - **不改 `VERSION` 和 `CHANGELOG.md`，不打 `v*` 标签。** 版本号跟随上游；在本仓库打 `v*` 标签会触发正式发版。
 - **目录插件只通过 `generate-catalog.mjs` 修改。** 由 `plugin-packages/generate-catalog.mjs` 生成的插件（例如 `openai-responses`），要改就改这个脚本本身，不要只手改 `manifest.json`，否则下一次重新生成会把手改的内容抹掉。手写插件（例如 `aotian-video`、`juchuang-video`）直接维护各自的 `manifest.json`。
 - **依赖版本跟随上游。** `.github/dependabot.yml` 来自上游，本仓库也会收到 Dependabot PR。这些 PR 不单独合并，免得和上游的同类升级冲突；安全修复单独评估。
@@ -207,6 +228,8 @@ git diff HEAD -- plugin-packages/<id>/manifest.json
 
 只重新打包上面列出的插件，不要整体执行 `build-packages.sh`。整体打包会让上百个二进制包产生无意义的字节差异，支付插件还需要交叉编译。
 
+同样不要不带参数运行 `generate-catalog.mjs`。上游会直接手改部分目录插件的 `manifest.json`（例如 `dashscope-wan3-video` 的分辨率转大写、`anthropic-messages` 的输出 Token 键），已提交的文件和生成器输出本来就对不上，整体重新生成会把这些修复冲掉。如果列表里只有 `plugin-packages/generate-catalog.mjs` 本身，说明两侧改的是生成器里不同插件的定义，各插件目录和包只有一侧改过，直接沿用合并结果即可，不需要重新生成。重新生成某个插件后，要用 `git diff` 确认差异只包含预期的变化。
+
 ### 6. 二改回归并提交合并
 
 先安装依赖（锁文件可能被上游更新过），再跑第四节的二改回归命令：
@@ -273,7 +296,7 @@ git status --short --branch
 | --- | --- |
 | `VERSION`、`CHANGELOG.md` | 取上游：`git restore --theirs -- VERSION CHANGELOG.md`，然后 `git add`。本仓库不自定版本号 |
 | `docs/content/docs/progress/pending-test.mdx`、`overview/features.mdx`、`backend/http-api.mdx` | 保留双方条目。不删上游条目，二改条目保持在原来的分节里 |
-| `backend/internal/database/migrations.go` 和迁移函数 | 取上游。二改不应该有迁移；如果在这里遇到二改迁移冲突，停止同步，先重新规划迁移版本 |
+| `backend/internal/database/migrations.go` 和迁移函数 | 取上游（`git checkout --theirs`），然后补回 `MigrateSchema` 里的 `releaseForkMigrationVersions(tx)` 和 `applyForkSchema(tx)` 两行调用，并跑第四节的 `internal/database` 回归。二改的表结构变化只放在 `fork_schema.go`；如果发现二改又登记了迁移版本，先按第四节第 2 小节迁出，再继续同步 |
 | `backend/internal/canvas/contract/*.go` | 正常合并代码，然后执行第五节第 5 步，重新生成 `generation-contract.generated.ts`；生成文件本身不要手改 |
 | `plugin-packages/generate-catalog.mjs` | 文本合并两侧的插件定义，然后按第五节第 5 步重新生成 |
 | `plugin-packages/<id>/manifest.json`、`docs/interface.md`、`README.md` | 目录插件：以合并后的 `generate-catalog.mjs` 重新生成，不手改。手写插件：合并 JSON，再执行 `embed-documentation.mjs <id>` |
@@ -316,7 +339,10 @@ for ($i = 49; $i -lt $commits.Count; $i += 50) {
 | --- | --- | --- |
 | `git merge-base main upstream/main` 没有输出 | 与上游的历史已经断开 | 停止同步，评估桥接历史方案 |
 | `merge-tree` 列出 `.yingce-plugin` 冲突 | 两侧都改了同一个插件 | 先解决源目录冲突，再重新打包 |
-| 启动报“数据库迁移 N 名称不一致”或“校验和不一致” | 二改迁移和上游迁移撞了版本号 | 停止部署，恢复备份，重新规划迁移 |
+| 启动报“数据库迁移 N 名称不一致”或“校验和不一致” | 二改迁移和上游迁移撞了版本号 | 停止部署，恢复备份，按第四节第 2 小节把二改迁移移到 `fork_schema.go` |
+| `merge-tree` 预检列出 `migrations.go` 冲突，二改一侧有新的 `{version: N, ...}` | 有二改登记了迁移版本 | 合并前先把它迁出到 `fork_schema.go`，并在 `releaseForkMigrationVersions` 里释放旧记录 |
+| `go test` 报 `go-sqlite3 requires cgo` | 本机没有 C 编译器 | 按第三节在 `local/go-cgo:1.25` 容器里运行 |
+| `gofmt -l .` 列出几乎所有 Go 文件 | `core.autocrlf=true` 检出的 CRLF 换行 | 在 `git archive` 导出的 LF 目录里检查 |
 | 启动报“数据库结构版本 X 高于程序支持的 Y” | 新迁移已经执行，程序却回滚到了旧版本 | 回滚程序时必须同时恢复同步前的数据库备份 |
 | 启动报“数据库结构版本过旧……请先执行 migrate-schema up” | 新程序还没跑迁移 | 按部署文档运行迁移服务 |
 | verify 的格式检查只在上游文件上失败 | 上游直接推送了未格式化的文件 | 只对失败的文件执行 prettier，作为单独的 `style` 提交，并在同步记录里注明 |
@@ -341,6 +367,18 @@ for ($i = 49; $i -lt $commits.Count; $i += 50) {
 本地开发数据库 `.local/project-workbench-debug` 也是一样：同步带有迁移时，先复制一份，再用新代码启动后端。
 
 ## 十、同步记录
+
+### 2026-11-07：v1.7.3.4 之后（`4d25e4a5`）→ v1.8.2
+
+- 上游基线：`cd2512eb9ba0aa7fa97ac7a72cb0d97c44c36828`（`v1.8.2`），吸收 159 个上游提交。首次配置了 `upstream` 远程（指向 `D:/open-ai-canvas`，禁止推送，不拉标签）。
+- 同步前 main：`880ffc0d`，包含 26 个二改提交；回滚标签：`backup/canvas-hajimi-before-upstream-20261107`（只在本地）。合并提交：`1914c1e1`（同步分支 `sync/upstream-20261107`）。
+- 冲突文件及处理方式：`.gitignore` 两侧的放行规则都保留；`web/src/pages/create/index.tsx` 采用上游的格式化与多语言版本，补回 `onDeleteMessage`；`backend/internal/database/migrations.go` 取上游，二改迁移 79 迁到 `fork_schema.go`（见第四节第 2 小节）；`backend-database.mdx`、`pending-test.mdx` 保留双方条目，二改条目改写为不占用迁移版本的说明。
+- 数据库结构版本：本仓库 79（含二改的 `task_user_deletion`）→ 91。新增的上游迁移是 79–91（电商 Agent、支付方式、方舟真人素材、缓存写入价、技能后台修改、Token 价格规则、姿势库、方舟素材组、灵感上新、参考视频计费 ×2、短剧草稿、邮件记录）。部署前必须先备份数据库。
+- 重新生成：画布契约没有差异；只有 `generate-catalog.mjs` 两侧都改过，各插件目录只有一侧改动，沿用合并结果，没有重新打包插件。发现上游手改了部分目录插件的 manifest，整体重新生成会冲掉修复，这一点已写进第五节第 5 步。
+- 二改保留情况：第四节清单的功能全部保留；没有被上游吸收的二改条目。
+- 验证：本机没有 Bun、cgo 和 LF 检出环境，`verify-before-push.mjs` 无法运行，按第三节在容器里做了等价检查。Web：改动的 739 个文件格式检查通过（基线本来就没格式化的 149 个跳过），`typecheck`、`lint` 通过，`bun run test` 3259 个用例全部通过（其中 9 个格式门禁用例需要 git，在装了 git 的容器里重跑通过）。后端：在 `local/go-cgo:1.25`（Go 1.25.14）容器里，`gofmt -l .` 没有输出；非 `internal/app` 的 41 个包全部通过（`internal/database` 含新增的 3 个二改迁移用例）；`internal/app` 的 1624 个顶层用例分 4 片全部通过。
+- 本地未覆盖：`golangci-lint`（Agent 静态检查）、PostgreSQL / Redis 集成用例、依赖 Node Agent runtime 的用例、支付插件双架构校验，由 CI 兜底。
+- 未执行的事项：推送前要确认；推送后要确认 Actions「Publish container images」的结果；生产部署和真实数据库迁移都没有做。
 
 ### 2026-11-04：现状盘点（尚未同步）
 
