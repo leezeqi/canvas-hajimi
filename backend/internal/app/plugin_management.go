@@ -19,6 +19,7 @@ const (
 	PluginAotianVideo         = "aotian-video"
 	PluginSD25PPVideo         = "sd25pp-video"
 	PluginNskevenVideo        = "nskeven-video"
+	PluginUUTokenVideo        = "uutoken-video"
 
 	PluginOriginOfficial = "official"
 	PluginOriginSystem   = "system"
@@ -114,6 +115,7 @@ var adminOnlyPlugins = map[string]bool{
 	PluginAotianVideo:  true,
 	PluginSD25PPVideo:  true,
 	PluginNskevenVideo: true,
+	PluginUUTokenVideo: true,
 }
 
 func isAdminOnlyPlugin(pluginID string) bool {

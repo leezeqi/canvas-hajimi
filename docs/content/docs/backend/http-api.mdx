@@ -23,6 +23,8 @@ SD2.5PP 视频使用独立 `sd25pp-video` 插件：`POST /v1/videos` 以 JSON �
 
 nskeven NewAPI 视频使用独立 `nskeven-video` 插件：`POST /v1/video/generations` 以 JSON 提交，按模型名在扁平字段、豆包 `metadata.content`、快线 `metadata.videos/audios` 三种请求体间切换；`GET /v1/video/generations/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。
 
+UUToken 视频使用独立 `uutoken-video` 插件：`POST /v1/videos` 以 JSON 提交，按模型名切换请求体（Seedance、Wan 等通用模型发送 `seconds/aspect_ratio/resolution` 与 `images/videos/audios` URL 数组，`sd2.5-gf`、`kling`、`sora-v3`、`gemini-omni`、`Seedance-2.0-full` 各用专属字段），参考素材为公网 URL；`GET /v1/videos/{id}` 查询，成功后优先使用响应中的 `video_url` / `url`，否则经 `GET /v1/videos/{id}/content` 带令牌下载成片。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。
+
 `POST /api/workbench/tasks` 的视频任务根据已校验的 `references` 推导操作类型，客户端不需要提交泛化的 `video` 操作：
 
 | 输入 | 操作 |

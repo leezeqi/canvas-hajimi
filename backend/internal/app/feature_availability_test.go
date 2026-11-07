@@ -114,6 +114,7 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 		PluginAotianVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginAotianVideo, Name: "傲天 Seedance 视频", Version: "1"}},
 		PluginSD25PPVideo:  {Source: "bundled", Metadata: protocol.Metadata{ID: PluginSD25PPVideo, Name: "SD2.5PP 全能参考视频", Version: "1"}},
 		PluginNskevenVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginNskevenVideo, Name: "nskeven 视频", Version: "1"}},
+		PluginUUTokenVideo: {Source: "bundled", Metadata: protocol.Metadata{ID: PluginUUTokenVideo, Name: "UUToken 视频", Version: "1"}},
 	}}
 
 	visibleToUser, err := svc.PluginsForUser(&model.User{ID: "user-1", Role: model.UserRoleUser})
@@ -142,13 +143,13 @@ func TestPluginsForUserKeepsOfficialApplicationsAndHidesManagedPlugins(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(visibleToAdmin) != 6 {
+	if len(visibleToAdmin) != 7 {
 		t.Fatalf("PluginsForUser(admin) = %#v", visibleToAdmin)
 	}
 }
 
 func TestProviderProtocolPluginAllowsAdminOnlyPluginsForUsersOnlyThroughSystemChannels(t *testing.T) {
-	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo, PluginNskevenVideo} {
+	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo, PluginNskevenVideo, PluginUUTokenVideo} {
 		t.Run(pluginID, func(t *testing.T) {
 			svc, db := newFeatureAvailabilityTestService(t)
 			if err := db.AutoMigrate(&model.User{}, &model.PluginPlatformState{}); err != nil {
