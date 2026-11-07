@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // 短剧自动制作域：章节（ProjectUnit kind=chapter）只承载小说原文，
 // 集（DramaEpisode）是剧本、分镜和后续产物的唯一基石。
@@ -69,12 +72,14 @@ type DramaProduction struct {
 	PlanDone           bool   `json:"planDone"`
 	SampleApproved     bool   `json:"sampleApproved"`
 	// AssetsReleased 为 true 后才自动生成角色/场景参考图；手动生图模式下由用户确认资产后打开。
-	AssetsReleased bool       `json:"assetsReleased"`
-	PauseReason    string     `json:"pauseReason" gorm:"size:500"`
-	Revision       int64      `json:"revision"`
-	LastTickAt     *time.Time `json:"lastTickAt,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	AssetsReleased bool   `json:"assetsReleased"`
+	PauseReason    string `json:"pauseReason" gorm:"size:500"`
+	// DraftJSON 是草稿的创建页表单（原始正文、画风 ID），只在 status=draft 时有值，开工时清空。
+	DraftJSON  string     `json:"-" gorm:"type:text"`
+	Revision   int64      `json:"revision"`
+	LastTickAt *time.Time `json:"lastTickAt,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 // DramaCast 是全剧设定（角色 / 场景），镜头引用它的参考图保持一致性。
@@ -136,6 +141,11 @@ type DramaEpisode struct {
 	Revision        int64     `json:"revision"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// DramaEpisodeDefaultTitle 是没有填写标题时的集标题；插入或删除集导致集号顺延时，仍是默认标题的集随新集号改名。
+func DramaEpisodeDefaultTitle(number int) string {
+	return fmt.Sprintf("第 %d 集", number)
 }
 
 // DramaShot 保存镜头脚本，作为剧情段视频提示词的素材。

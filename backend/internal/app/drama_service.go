@@ -24,20 +24,28 @@ const (
 	dramaEpisodeJobsLimit = 40
 )
 
-// CreateDrama 一次性写入项目、小说章节与制作控制面；start=true 时立即进入自动制作。
-func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSummary, error) {
+// dramaCreation 是一次建档要写入的全部行：项目、原著章节、制作控制面与按章分集时直接建好的集。
+type dramaCreation struct {
+	project    model.Project
+	chapters   []model.ProjectUnit
+	production model.DramaProduction
+	episodes   []model.DramaEpisode
+}
+
+// prepareDramaCreation 校验创建请求并组装要写入的行；新建作品与重存草稿共用这一份校验。
+func (s *Service) prepareDramaCreation(userID string, projectID string, req CreateDramaRequest) (*dramaCreation, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return DramaSummary{}, BadAuthRequest("作品名称不能为空")
+		return nil, BadAuthRequest("作品名称不能为空")
 	}
 	if utf8.RuneCountInString(name) > 80 {
-		return DramaSummary{}, BadAuthRequest("作品名称不能超过 80 字")
+		return nil, BadAuthRequest("作品名称不能超过 80 字")
 	}
 	if len(req.Chapters) == 0 || len(req.Chapters) > dramaMaxChapters {
-		return DramaSummary{}, BadAuthRequest("章节数量必须在 1 到 3000 之间")
+		return nil, BadAuthRequest("章节数量必须在 1 到 3000 之间")
 	}
 	if req.BudgetMicrocredits < 0 {
-		return DramaSummary{}, BadAuthRequest("预算不能为负数")
+		return nil, BadAuthRequest("预算不能为负数")
 	}
 	if req.Settings.MediaMode == "" {
 		// 新作品默认先只跑文本：先看剧情、分镜与资产，确认后再花钱生图。
@@ -53,42 +61,45 @@ func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSumma
 		req.Settings.EpisodeMode, req.Settings.ChaptersPerEpisode = DramaEpisodeModeChapter, 1
 	}
 	settings := req.Settings.normalized()
+	if err := settings.TextThinking.validate(); err != nil {
+		return nil, err
+	}
 	if !production.ValidAspectRatio(settings.AspectRatio) {
-		return DramaSummary{}, BadAuthRequest("不支持的画幅：" + settings.AspectRatio)
+		return nil, BadAuthRequest("不支持的画幅：" + settings.AspectRatio)
 	}
 	if problem := production.ValidateAssetPrompts(settings.Assets); problem != "" {
-		return DramaSummary{}, BadAuthRequest(problem)
+		return nil, BadAuthRequest(problem)
 	}
 	if err := s.validateDramaSkills(userID, settings); err != nil {
-		return DramaSummary{}, err
+		return nil, err
 	}
 	if err := s.validateDramaModelOverrides(userID, settings.Models); err != nil {
-		return DramaSummary{}, err
+		return nil, err
 	}
 	models, err := s.resolveDramaModels(userID, settings)
 	if err != nil {
-		return DramaSummary{}, err
+		return nil, err
 	}
 	settings.Models = models
 	if err := s.validateDramaImageSettings(models, settings.Assets); err != nil {
-		return DramaSummary{}, err
+		return nil, err
 	}
 	if err := s.validateDramaVideoSettings(settings); err != nil {
-		return DramaSummary{}, err
+		return nil, err
 	}
 	if req.Start {
 		if missing := missingDramaCapabilities(models); len(missing) > 0 {
-			return DramaSummary{}, BadAuthRequest("还没有可用的" + strings.Join(missing, "、") + "模型，请联系管理员开通后再开始制作")
+			return nil, BadAuthRequest("还没有可用的" + strings.Join(missing, "、") + "模型，请联系管理员开通后再开始制作")
 		}
 	}
 	selected, err := dramaSelectedChapters(req.SelectedChapters, len(req.Chapters))
 	if err != nil {
-		return DramaSummary{}, err
+		return nil, err
 	}
 	// 按章分集时建档即写好各集；交给模型分集时由调度循环分批规划。
 	perChapter := settings.EpisodeMode == DramaEpisodeModeChapter
 	now := time.Now()
-	project := model.Project{ID: newID(), UserID: userID, Name: name, Type: "short-drama", AspectRatio: settings.AspectRatio, SourceType: format, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
+	project := model.Project{ID: projectID, UserID: userID, Name: name, Type: "short-drama", AspectRatio: settings.AspectRatio, SourceType: format, Status: model.ProjectStatusActive, Revision: 1, CreatedAt: now, UpdatedAt: now}
 	chapters := make([]model.ProjectUnit, 0, len(req.Chapters))
 	produced := make([]model.ProjectUnit, 0, len(req.Chapters))
 	totalRunes, producedRunes := 0, 0
@@ -96,7 +107,7 @@ func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSumma
 		text := strings.TrimSpace(strings.ReplaceAll(input.Text, "\r\n", "\n"))
 		runes := utf8.RuneCountInString(text)
 		if runes > dramaMaxChapterRunes {
-			return DramaSummary{}, BadAuthRequest("单章不能超过 6 万字，请检查章节拆分")
+			return nil, BadAuthRequest("单章不能超过 6 万字，请检查章节拆分")
 		}
 		// 剧本提示词每章最多读取这么多字，超出会被截断而丢台词，所以无论哪种分集方式都直接拒绝。
 		// 预留章节暂不改编，加入制作时再检查。
@@ -105,7 +116,7 @@ func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSumma
 			if perChapter && settings.ChaptersPerEpisode == 1 {
 				label = "集"
 			}
-			return DramaSummary{}, BadAuthRequest(fmt.Sprintf("第 %d %s原文 %d 字，单章不超过 %d 字，请在章节标题处拆开", index+1, label, runes, production.ScriptSourceChapterRunes))
+			return nil, BadAuthRequest(fmt.Sprintf("第 %d %s原文 %d 字，单章不超过 %d 字，请在章节标题处拆开", index+1, label, runes, production.ScriptSourceChapterRunes))
 		}
 		totalRunes += runes
 		title := strings.TrimSpace(input.Title)
@@ -124,10 +135,10 @@ func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSumma
 		}
 	}
 	if totalRunes == 0 || producedRunes == 0 {
-		return DramaSummary{}, BadAuthRequest("原文为空")
+		return nil, BadAuthRequest("原文为空")
 	}
 	if totalRunes > dramaMaxNovelRunes {
-		return DramaSummary{}, BadAuthRequest("原文不能超过 600 万字")
+		return nil, BadAuthRequest("原文不能超过 600 万字")
 	}
 	status := model.DramaStatusDraft
 	if req.Start {
@@ -140,19 +151,106 @@ func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSumma
 		productionRow.PlanCursor, productionRow.PlanDone = len(produced), true
 		episodes, err = groupDramaChapterEpisodes(project.ID, 1, produced, settings.ChaptersPerEpisode, format, now)
 		if err != nil {
-			return DramaSummary{}, err
+			return nil, err
 		}
 	}
-	if err := s.repo.CreateDramaProject(&project, chapters, &productionRow, episodes...); err != nil {
+	draftJSON := ""
+	if !req.Start && req.Draft != nil {
+		form := *req.Draft
+		form.SourceText = strings.TrimSpace(form.SourceText)
+		if utf8.RuneCountInString(form.SourceText) > dramaMaxNovelRunes*2 {
+			return nil, BadAuthRequest("草稿原文过长")
+		}
+		form.StyleID = truncateRunes(strings.TrimSpace(form.StyleID), 80)
+		encoded, err := json.Marshal(form)
+		if err != nil {
+			return nil, err
+		}
+		draftJSON = string(encoded)
+	}
+	productionRow.DraftJSON = draftJSON
+	return &dramaCreation{project: project, chapters: chapters, production: productionRow, episodes: episodes}, nil
+}
+
+// CreateDrama 一次性写入项目、小说章节与制作控制面；start=true 时立即进入自动制作，否则保存为草稿。
+func (s *Service) CreateDrama(userID string, req CreateDramaRequest) (DramaSummary, error) {
+	creation, err := s.prepareDramaCreation(userID, newID(), req)
+	if err != nil {
+		return DramaSummary{}, err
+	}
+	if err := s.repo.CreateDramaProject(&creation.project, creation.chapters, &creation.production, creation.episodes...); err != nil {
 		if errors.Is(err, repository.ErrProjectNameConflict) {
-			conflict := NewAppError(http.StatusConflict, "已有同名作品，请换一个名称")
-			conflict.Reason = ReasonProjectNameConflict
-			return DramaSummary{}, conflict
+			return DramaSummary{}, dramaNameConflict()
+		}
+		return DramaSummary{}, err
+	}
+	s.wakeDramaScheduler()
+	return s.DramaSummary(userID, creation.project.ID)
+}
+
+// SaveDramaDraft 用创建页的完整表单整体替换一个从未开工的草稿：名称、原文章节、选章、设置与预算；
+// start=true 时替换后直接开工。已开工（状态不再是草稿或已有作业）的作品拒绝，避免覆盖已产出的内容。
+func (s *Service) SaveDramaDraft(userID string, projectID string, req CreateDramaRequest) (DramaSummary, error) {
+	project, productionRow, err := s.dramaForUser(userID, projectID)
+	if err != nil {
+		return DramaSummary{}, err
+	}
+	if productionRow.Status != model.DramaStatusDraft {
+		return DramaSummary{}, BadAuthRequest("作品已开始制作，不能再按草稿修改")
+	}
+	creation, err := s.prepareDramaCreation(userID, project.ID, req)
+	if err != nil {
+		return DramaSummary{}, err
+	}
+	creation.project.CreatedAt = project.CreatedAt
+	creation.production.CreatedAt = productionRow.CreatedAt
+	if err := s.repo.ReplaceDramaDraft(&creation.project, creation.chapters, &creation.production, creation.episodes); err != nil {
+		switch {
+		case errors.Is(err, repository.ErrProjectNameConflict):
+			return DramaSummary{}, dramaNameConflict()
+		case errors.Is(err, repository.ErrDramaDraftStarted):
+			return DramaSummary{}, BadAuthRequest("作品已开始制作，不能再按草稿修改")
 		}
 		return DramaSummary{}, err
 	}
 	s.wakeDramaScheduler()
 	return s.DramaSummary(userID, project.ID)
+}
+
+// DramaDraft 返回草稿的创建表单，供创建页回填；只有带表单的草稿可读。
+func (s *Service) DramaDraft(userID string, projectID string) (DramaDraftView, error) {
+	project, productionRow, err := s.dramaForUser(userID, projectID)
+	if err != nil {
+		return DramaDraftView{}, err
+	}
+	if productionRow.Status != model.DramaStatusDraft || productionRow.DraftJSON == "" {
+		return DramaDraftView{}, BadAuthRequest("这个作品没有可编辑的草稿")
+	}
+	var form DramaDraftForm
+	if err := json.Unmarshal([]byte(productionRow.DraftJSON), &form); err != nil {
+		return DramaDraftView{}, err
+	}
+	outline, err := s.repo.DramaChapterOutline(project.ID)
+	if err != nil {
+		return DramaDraftView{}, err
+	}
+	selected := make([]int, 0, len(outline))
+	for _, chapter := range outline {
+		if chapter.Status != model.ProjectUnitStatusReserved {
+			selected = append(selected, chapter.Position)
+		}
+	}
+	return DramaDraftView{
+		ProjectID: project.ID, Name: project.Name, SourceFormat: production.NormalizeSourceFormat(project.SourceType),
+		Settings: parseDramaSettings(productionRow.SettingsJSON), BudgetMicrocredits: productionRow.BudgetMicrocredits,
+		SelectedChapters: selected, ChapterCount: len(outline), Form: form,
+	}, nil
+}
+
+func dramaNameConflict() error {
+	conflict := NewAppError(http.StatusConflict, "已有同名作品，请换一个名称")
+	conflict.Reason = ReasonProjectNameConflict
+	return conflict
 }
 
 // newDramaChapterEpisode 把一章原文直接建成一集；梗概、钩子和悬念留空，由剧本阶段按原文补写。
@@ -283,7 +381,7 @@ func (s *Service) ListDramas(userID string, req DramaListRequest) (map[string]an
 			Project: project, Status: productionRow.Status, Stage: productionRow.Stage, PauseReason: productionRow.PauseReason,
 			EpisodeCount: count[0], DoneCount: count[1], CoverResourceIDs: covers[project.ID], AspectRatio: settings.AspectRatio,
 			StyleName: settings.StyleName, SpentMicrocredits: spends[project.ID].ChargedMicrocredits(), HeldMicrocredits: spends[project.ID].HeldMicrocredits(),
-			UpdatedAt: project.UpdatedAt.Format(time.RFC3339),
+			UpdatedAt: project.UpdatedAt.Format(time.RFC3339), HasDraftForm: productionRow.Status == model.DramaStatusDraft && productionRow.DraftJSON != "",
 		}
 		if len(item.CoverResourceIDs) > 0 {
 			item.CoverResourceID = item.CoverResourceIDs[0]
@@ -344,7 +442,7 @@ func (s *Service) DramaSummary(userID string, projectID string) (DramaSummary, e
 			Status: productionRow.Status, Stage: productionRow.Stage, PauseReason: productionRow.PauseReason,
 			Settings: parseDramaSettings(productionRow.SettingsJSON), BudgetMicrocredits: productionRow.BudgetMicrocredits,
 			SpentMicrocredits: spend.ChargedMicrocredits(), CanvasSpentMicrocredits: spend.CanvasChargedMicrocredits, HeldMicrocredits: spend.HeldMicrocredits(),
-			PlanDone: productionRow.PlanDone, PlanCursor: productionRow.PlanCursor,
+			PlanDone: productionRow.PlanDone, PlanCursor: productionRow.PlanCursor, HasDraftForm: productionRow.Status == model.DramaStatusDraft && productionRow.DraftJSON != "",
 			SampleApproved: productionRow.SampleApproved, AssetsReleased: productionRow.AssetsReleased, Logline: meta.Logline, Tone: meta.Tone,
 			ChapterCount: chapterCount, WordCount: words, ReservedChapterCount: reservedCount, ReservedWordCount: reservedWords,
 		},
@@ -365,7 +463,7 @@ func (s *Service) DramaSummary(userID string, projectID string) (DramaSummary, e
 			ID: episode.ID, Number: episode.Number, Title: episode.Title, Synopsis: truncateRunes(episode.Synopsis, 120), Stage: episode.Stage, SourceFormat: production.NormalizeSourceFormat(episode.SourceFormat), Error: episode.Error,
 			ShotCount: episode.ShotCount, DurationMs: episode.DurationMs, Approved: episode.Approved, MediaReleased: episode.MediaReleased, AwaitingMedia: held,
 			FinalResourceID: episode.FinalResourceID, FinalStale: episode.FinalStale,
-			Stats:    DramaEpisodeStats{Segments: stat.Total, PromptReady: stat.PromptReady, VideoReady: stat.VideoReady, Failed: stat.Failed},
+			Stats:    DramaEpisodeStats{Segments: stat.Total, PromptReady: stat.PromptReady, VideoReady: stat.VideoReady, VideoGenerated: stat.VideoGenerated, Failed: stat.Failed},
 			Revision: episode.Revision, UpdatedAt: episode.UpdatedAt.Format(time.RFC3339),
 		})
 		if episode.Stage == model.DramaEpisodeReview {
@@ -621,7 +719,7 @@ func dramaJobTaskView(task *model.Task, labels map[string]string) *DramaJobTaskV
 }
 
 func (s *Service) DramaJobs(userID string, projectID string, limit int) ([]DramaJobView, error) {
-	project, _, err := s.dramaForUser(userID, projectID)
+	project, productionRow, err := s.dramaForUser(userID, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -637,6 +735,13 @@ func (s *Service) DramaJobs(userID string, projectID string, limit int) ([]Drama
 		views = append(views, dramaJobView(job))
 	}
 	if err := s.attachDramaProviderStages(project.UserID, views); err != nil {
+		return nil, err
+	}
+	waiting := make([]*DramaJobView, len(views))
+	for i := range views {
+		waiting[i] = &views[i]
+	}
+	if err := s.fillDramaJobWaits(productionRow, waiting...); err != nil {
 		return nil, err
 	}
 	return views, nil
@@ -770,6 +875,15 @@ func (s *Service) fillDramaSegmentViews(projectID string, p *model.DramaProducti
 		request, _, _, prepareErr := s.prepareDramaSegment(settings, draft, rows[i], previous, castByID)
 		if prepareErr != nil {
 			request.Warning = prepareErr.Error()
+			// 视频模型下线、时长超限等会让预演在列参考图前返回。镜头里的设定引用仍在，照常列出并标为未发送；
+			// 否则制作台看起来像资产引用丢了，在参考面板勾选候选还会把本段存成只含该项的手动列表。
+			if len(request.References) < len(draft.view.Request.References) {
+				request.References = make([]DramaSegmentReference, 0, len(draft.view.Request.References))
+				for _, reference := range draft.view.Request.References {
+					reference.ResourceID, reference.Sent = castByID[reference.CastID].ImageResourceID, false
+					request.References = append(request.References, reference)
+				}
+			}
 		}
 		detail.Segments[i].Request = request
 	}
@@ -777,12 +891,28 @@ func (s *Service) fillDramaSegmentViews(projectID string, p *model.DramaProducti
 		cast, ok := castByID[id]
 		return cast, ok
 	}
+	// 排队作业的等待原因一次算好：本集作业、剧本作业与各段的提示词、视频作业。
+	waiting := []*DramaJobView{detail.ScriptJob}
+	for i := range detail.Jobs {
+		waiting = append(waiting, &detail.Jobs[i])
+	}
+	for i := range detail.Segments {
+		waiting = append(waiting, detail.Segments[i].PromptJob, detail.Segments[i].VideoJob)
+	}
+	if err := s.fillDramaJobWaits(p, waiting...); err != nil {
+		return err
+	}
 	for i := range detail.Segments {
 		view := &detail.Segments[i]
 		if view.VideoStatus != model.DramaMediaQueued || i >= len(rows) {
 			continue
 		}
-		if job := view.VideoJob; job != nil && (job.Status == model.DramaJobQueued || job.Status == model.DramaJobRunning) {
+		if job := view.VideoJob; job != nil && job.Status == model.DramaJobRunning {
+			continue
+		}
+		// 作业已排队、还没提交：原因是作品暂停、账号或本池同时生成数已满；下一轮就会提交时为空，显示“排队提交中”。
+		if job := view.VideoJob; job != nil && job.Status == model.DramaJobQueued {
+			view.VideoWait = job.Wait
 			continue
 		}
 		view.VideoWait = firstNonEmpty(dramaVideoWaitReason(settings, p, &detail.Episode, rows, i, detail.Shots, lookup), "排队中，等待调度提交")
@@ -830,7 +960,7 @@ func buildDramaSegmentDrafts(settings DramaSettings, meta dramaBibleMeta, shots 
 				}
 			}
 		}
-		input := production.SegmentPromptInput{Index: position, Count: len(groups), Title: view.Title, AspectRatio: settings.AspectRatio, Style: settings.StylePrompt, VisualRules: meta.VisualRules, Language: settings.Language, PauseMs: settings.Storyboard.DialoguePauseMs(), Independent: settings.parallelVideo(), Performance: settings.Storyboard.Performance, CameraMotion: settings.Storyboard.CameraMotion}
+		input := production.SegmentPromptInput{Index: position, Count: len(groups), Title: view.Title, AspectRatio: settings.AspectRatio, Style: settings.StylePrompt, VisualRules: meta.VisualRules, Language: settings.Language, PauseMs: settings.Storyboard.DialoguePauseMs(), CharsPerSecond: settings.Storyboard.CharsPerSecond(), Independent: settings.parallelVideo(), Performance: settings.Storyboard.Performance, CameraMotion: settings.Storyboard.CameraMotion}
 		for _, shot := range group {
 			view.ShotIDs = append(view.ShotIDs, shot.ID)
 			view.DurationMs += shot.DurationMs

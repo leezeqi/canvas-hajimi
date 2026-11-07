@@ -22,6 +22,7 @@ import {
     type DramaMediaMode,
     type DramaReviewMode,
     type DramaSummary,
+    type DramaTextThinking,
     type DramaVideoContinuity,
 } from "@/services/api/drama";
 
@@ -711,12 +712,14 @@ export function SettingsPanel({ projectId, summary, cast, onChanged }: { project
                                 />
                             </section>
                             <section className="drama-cfg-card">
-                                <SettingsTitle title="文字步骤" detail="每一步可以单独选文本模型和写作技能；不选就用默认文本模型和内置写法，对之后执行的步骤生效" icon={<ScrollText className="size-4" />} />
+                                <SettingsTitle title="文字步骤" detail="每一步可以单独设置思考意图、文本模型和写作技能；思考等级按实际使用模型的能力归一化，对之后执行的步骤生效" icon={<ScrollText className="size-4" />} />
                                 <DramaTextSteps
                                     models={settings.models}
                                     onModelsChange={setModels}
                                     skills={{ bible: settings.bibleSkill, script: settings.scriptSkill, prompt: settings.promptSkill }}
                                     onSkillChange={(step, value) => setSettings({ ...settings, [step === "bible" ? "bibleSkill" : step === "script" ? "scriptSkill" : "promptSkill"]: value })}
+                                    textThinking={settings.textThinking || {}}
+                                    onThinkingChange={(step, level) => setSettings({ ...settings, textThinking: { ...settings.textThinking, [step]: level === "auto" ? undefined : level } as DramaTextThinking })}
                                 />
                             </section>
                             <section className="drama-cfg-card">
@@ -839,7 +842,7 @@ export function SettingsPanel({ projectId, summary, cast, onChanged }: { project
                                 {continuity !== (current.videoContinuity || "tail_frame") ? <p className="drama-cfg-note">已写好的段视频提示词按原方式撰写，切换后可在剧情段里重新撰写；已提交的视频会做完。</p> : null}
                             </section>
                             <section className="drama-cfg-card">
-                                <SettingsTitle title="同时生成数" detail="受账号并发上限约束" />
+                                <SettingsTitle title="同时生成数" detail="文字、参考图、段视频分别计算，受账号并发上限约束" />
                                 <div className="drama-tabs drama-cfg-seg" role="radiogroup" aria-label="同时生成数">
                                     {CONCURRENCY.map((value) => (
                                         <button key={value} type="button" role="radio" className="drama-tab" aria-checked={settings.concurrency === value} onClick={() => setSettings({ ...settings, concurrency: value })}>
