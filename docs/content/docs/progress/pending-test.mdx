@@ -5,6 +5,17 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## nskeven NewAPI 视频协议
+
+- 已实现：独立 `nskeven-video` 声明式插件（Provider `nskeven-video`，默认 Base URL `https://newapi.nskeven.uk`，不带 `/v1`），`POST /v1/video/generations` 只发 JSON，`seconds` 以字符串发送，空值省略。按模型名（去空格转小写）切换三种请求体：包含 `doubao-seedance` 的豆包模型把分辨率、画幅、声音、水印和全部素材写进 `metadata`（素材为 `metadata.content` 的 `image_url` / `video_url` / `audio_url` 项，带 `reference_image` / `first_frame` / `last_frame` / `reference_video` / `reference_audio` 角色），顶层不发这些字段；包含 `sd-2-`、`sd-2.5-`、`wan-3.0-` 的快线模型参考图在顶层 `images`，参考视频、音频写在 `metadata.videos` / `metadata.audios`；其余模型全部用顶层扁平字段。首帧、尾帧图片单独发 `first_frame_url` / `last_frame_url`，不进 `images`。`even-sd2.0-A` / `even-sd2.5-A` 会把画布的 `@图片N` 改写为上游要求的 `@图N`。
+- 已实现：声明 `requiresPublicMediaUrls` 与 `detachedPolling`；提交前校验提示词、时长 4–30、画幅（21:9 仅豆包，快线仅 1:1 / 16:9 / 9:16）、分辨率枚举、豆包必填分辨率、首尾帧各 1 张、豆包首尾帧限制、快线素材数量上限、A 系列带素材必须写 `@图` / `@视频` / `@音频` 引用。查询 `GET /v1/video/generations/{id}` 只认 `data.status`，失败原因取 `data.fail_reason`（为空时依次取 `data.data` 内的原因），成功后固定走 `/v1/videos/{id}/content` 带 Key 下载。
+- 已验证：协议单测覆盖三种请求体、首尾帧拆分、提示词改写、默认省略、校验拦截和放行、各状态与阶段映射、失败原因、错误对象和结果下载；`internal/protocol` 全包通过。未用真实 Key 联调。
+- [ ] 真实渠道：`even-sd2.5-A` 文生视频一次、带参考图（提示词含 `@图片1`）一次，确认 `@图1` 改写后上游能匹配素材，`seconds` 字符串被接受。
+- [ ] `doubao-seedance-2-0-fast-260128` 带参考图与参考视频一次、首尾帧一次，确认 `metadata.content` 写法与 `generate_audio` 开关生效。
+- [ ] `sd-2-E6` 带参考视频或音频一次，确认 `metadata.videos` / `metadata.audios` 生效；确认 `even-sd-2.5-30s` 归入快线格式是否正确（上游 4.3 节适用模型未列出它，只在 10.5 节表格中）。
+- [ ] `video-ultra-720p` 首尾帧一次，确认 `first_frame_url` / `last_frame_url` 被上游采用而不是当参考图。
+- [ ] 确认宿主签名素材地址可被上游直接拉取且 `Content-Type` 正确；确认 `/content` 下载成片可用，失败任务能展示 `fail_reason` 原文。
+
 ## 作品保存：多候选结果地址与地址无效不再空等重试
 
 - 背景：Navivo 完成响应的 `url` 字段出现用换行拼接的两个地址（`<.../content>\n<CDN 直链>`），整串被当成一个地址，解析失败后又被误判为网络错误，自动恢复空转约 14 分钟后才判定"下载结果失败"。
