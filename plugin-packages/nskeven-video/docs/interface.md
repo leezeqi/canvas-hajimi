@@ -4,6 +4,7 @@
 
 - 插件 ID：`nskeven-video`。
 - Provider ID：`nskeven-video`（与插件 ID 相同）。
+- 可见性：仅管理员可见。普通用户的插件中心、插件状态和协议目录不返回该插件，自定义渠道也不能使用；管理员把它配置到系统渠道模型后，普通用户可以通过该系统渠道正常生成，插件被平台停用时一并失败。
 - 能力：`video`。
 - 默认 Base URL：`https://newapi.nskeven.uk`，末尾不要带 `/v1`（接口路径已包含 `/v1`）。
 - 鉴权：`Authorization: Bearer <apiKey>`。使用平台分配的令牌，不要自行在控制台新建；令牌带分组属性，视频模型和图片模型通常在不同分组，用错分组会返回 503 `model_not_found`。

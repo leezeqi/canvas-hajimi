@@ -21,6 +21,8 @@ description: 信封、错误码与 OpenAPI
 
 SD2.5PP 视频使用独立 `sd25pp-video` 插件：`POST /v1/videos` 以 JSON 提交 `model/prompt/seconds/resolution/aspect_ratio`，`mode` 固定为 `omni_reference`，参考素材按图片、视频、音频顺序拼成 `references: [{kind, data}]`；`GET /v1/videos/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址，创建带 `Idempotency-Key` 并在 429/5xx 时用同一个键重试。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。仅管理员可见按渠道协议 ID 匹配，这类插件的 Provider ID 必须与插件 ID 相同。
 
+nskeven NewAPI 视频使用独立 `nskeven-video` 插件：`POST /v1/video/generations` 以 JSON 提交，按模型名在扁平字段、豆包 `metadata.content`、快线 `metadata.videos/audios` 三种请求体间切换；`GET /v1/video/generations/{id}` 查询，成功后经 `GET /v1/videos/{id}/content` 带令牌下载成片。插件要求公网素材地址。可见性与 `aotian-video` 相同：只向管理员显示，普通用户只能通过管理员配置的系统渠道使用。
+
 `POST /api/workbench/tasks` 的视频任务根据已校验的 `references` 推导操作类型，客户端不需要提交泛化的 `video` 操作：
 
 | 输入 | 操作 |

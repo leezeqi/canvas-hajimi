@@ -173,7 +173,7 @@ func TestAdminOnlyProviderCatalogIsVisibleOnlyToAdmins(t *testing.T) {
 	svc := &Service{pluginRuntime: center}
 	userCatalog := svc.PluginProviderCatalogForUser(&model.User{ID: "user-1", Role: model.UserRoleUser}, string(protocol.SurfaceAdminSystemChannel), string(protocol.CapabilityVideo), true)
 	adminCatalog := svc.PluginProviderCatalogForUser(&model.User{ID: "admin-1", Role: model.UserRoleAdmin}, string(protocol.SurfaceAdminSystemChannel), string(protocol.CapabilityVideo), true)
-	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo} {
+	for _, pluginID := range []string{PluginAotianVideo, PluginSD25PPVideo, PluginNskevenVideo} {
 		for _, item := range userCatalog {
 			if item.ID == pluginID {
 				t.Errorf("%s provider was visible to an ordinary user", pluginID)
