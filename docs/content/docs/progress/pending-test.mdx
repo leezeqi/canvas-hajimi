@@ -5,6 +5,15 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
+## 作品保存：多候选结果地址与地址无效不再空等重试
+
+- 背景：Navivo 完成响应的 `url` 字段出现用换行拼接的两个地址（`<.../content>\n<CDN 直链>`），整串被当成一个地址，解析失败后又被误判为网络错误，自动恢复空转约 14 分钟后才判定"下载结果失败"。
+- 已实现：结果地址里每段都是 http(s) 时按空白拆成候选地址，作品保存（`downloadTaskMedia`）和直接下载（`protocolMediaBytesOnce`）都按顺序尝试，第一个成功即用；全部失败时只要有一个是临时错误就继续自动恢复，否则直接失败。已存在的检查点保存的是原始整串，修复上线后点"恢复作品保存"也会按候选地址重试。
+- 已实现：`storage.ClassifyError` 不再把地址解析失败（`url.Error` 的 `Op=parse`）当成网络错误；下载阶段失败会写入 `task/media/download` 请求明细，原因只含类别（超时、无进度、地址无效、上游 HTTP 状态码、暂存空间不足），不含地址和签名。
+- 已验证：新增单测覆盖候选拆分、第一个 404 后改用第二个成功、地址无效不重试、候选中有 503 时保持可重试、解析错误分类；`internal/storage`、`internal/protocol` 全包通过。Windows 本机 `TestMediaRecovery*` 中多项因目录 fsync `Access is denied` 失败，干净的 HEAD 上同样失败，由 Linux CI 兜底。
+- [ ] 线上：Navivo 再次返回换行拼接的地址时，作品能保存成功；请求明细里能看到 `task/media/download` 的失败原因。
+- [ ] 线上：对 2026-11-07 凌晨 4 个"下载结果失败"的 Navivo 任务在后台点"恢复作品保存"，确认是否还能取回（CDN 签名可能已过期）。
+
 ## Navivo NewAPI 视频协议
 
 - 已实现：独立 `navivo-video` 声明式插件（Provider `navivo-video`，默认 Base URL `https://db.navivo.cc`，不带 `/v1`），`POST /v1/videos` 只发 JSON。dola-seedance 系列发送 `model`、`prompt`、`aspect_ratio`、`images`（URL 字符串数组），不发时长；模型名去空格转小写后包含 `sd933` 时按 SD 933 格式额外发送数字 `duration`，`images`、`videos`、`audios` 均为 `[{url}]`。空值省略。

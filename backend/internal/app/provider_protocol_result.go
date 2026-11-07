@@ -204,8 +204,24 @@ func protocolMediaBytesOnce(ctx context.Context, config providerConfig, referenc
 	if value == "" {
 		return nil, "", errors.New("声明式协议媒体结果地址为空")
 	}
-	data, mimeType, err := getProviderExternalBinary(withProviderRequestKind(ctx, "download"), config, value)
-	return data, normalizedMediaMimeType(mimeType, data), err
+	// 与作品保存一致：结果字段里拼接的多个候选地址按顺序尝试。
+	var failures []error
+	for _, candidate := range mediaURLCandidates(value) {
+		data, mimeType, err := getProviderExternalBinary(withProviderRequestKind(ctx, "download"), config, candidate)
+		if err == nil {
+			return data, normalizedMediaMimeType(mimeType, data), nil
+		}
+		if ctx.Err() != nil {
+			return nil, "", err
+		}
+		failures = append(failures, err)
+	}
+	for _, failure := range failures {
+		if retryableProtocolMediaDownload(failure) {
+			return nil, "", failure
+		}
+	}
+	return nil, "", errors.Join(failures...)
 }
 
 func retryableProtocolMediaDownload(err error) bool {

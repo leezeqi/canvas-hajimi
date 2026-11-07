@@ -118,6 +118,92 @@ func TestDownloadTaskMediaKeepsExternalCancellation(t *testing.T) {
 	}
 }
 
+func TestMediaURLCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want []string
+	}{
+		{" https://a.example/x.mp4 ", []string{"https://a.example/x.mp4"}},
+		{"https://a.example/v/1/content\nhttps://cdn.example/x.mp4?a=1&b=2", []string{"https://a.example/v/1/content", "https://cdn.example/x.mp4?a=1&b=2"}},
+		{"https://a.example/x.mp4\n not-a-url", []string{"https://a.example/x.mp4\n not-a-url"}},
+		{"", []string{""}},
+	} {
+		got := mediaURLCandidates(tc.raw)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%q => %q, want %q", tc.raw, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("%q => %q, want %q", tc.raw, got, tc.want)
+			}
+		}
+	}
+}
+
+// 上游在 url 字段里用换行拼接多个候选地址（Navivo）：第一个不可用时必须改用下一个，而不是把整串当成一个地址。
+func TestDownloadTaskMediaTriesNewlineSeparatedCandidates(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	s, _ := newMediaRecoveryTestService(t)
+	picture := mediaTestPNG(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/result.png" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(picture)
+	}))
+	defer server.Close()
+
+	name, mimeType, err := s.downloadTaskMedia(context.Background(), providerConfig{}, server.URL+"/v1/videos/x/content\n"+server.URL+"/result.png", "image")
+	if err != nil {
+		t.Fatalf("candidate download failed: %v", err)
+	}
+	if mimeType != "image/png" {
+		t.Fatalf("mime=%s", mimeType)
+	}
+	if data, err := os.ReadFile(s.mediaTempPath(name)); err != nil || !bytes.Equal(data, picture) {
+		t.Fatalf("staged file mismatch: %v", err)
+	}
+}
+
+// 无法解析的地址在发请求前就失败，重试必然失败：不能进入自动恢复空等，并且日志原因要可辨认。
+func TestDownloadTaskMediaInvalidURLIsPermanent(t *testing.T) {
+	s, _ := newMediaRecoveryTestService(t)
+	_, _, err := s.downloadTaskMedia(context.Background(), providerConfig{}, "https://cdn.example/a\x01b.mp4", "video")
+	if err == nil {
+		t.Fatal("invalid url must fail")
+	}
+	if retryableMediaRecovery(err) {
+		t.Fatalf("url parse error must not be retried: %v", err)
+	}
+	if got := mediaDownloadFailureDetail(err); got != "上游结果地址无效" {
+		t.Fatalf("detail=%q", got)
+	}
+}
+
+// 所有候选都失败时，只要有一个是临时错误就保留自动重试。
+func TestDownloadTaskMediaKeepsRetryableCandidateFailure(t *testing.T) {
+	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
+	s, _ := newMediaRecoveryTestService(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/busy" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	_, _, err := s.downloadTaskMedia(context.Background(), providerConfig{}, server.URL+"/gone\n"+server.URL+"/busy", "video")
+	if err == nil || !retryableMediaRecovery(err) {
+		t.Fatalf("err=%v, want retryable", err)
+	}
+	if got := mediaDownloadFailureDetail(err); got != "上游返回 HTTP 503" {
+		t.Fatalf("detail=%q", got)
+	}
+}
+
 func TestMediaDownloadLogErrorIsRedacted(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
