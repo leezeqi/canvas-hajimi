@@ -28,11 +28,18 @@ CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS=hajimi-bridge   # OAuth token/userinfo 走
 ```bash
 cd /srv/apps/open-ai-canvas
 sudo cp <仓库>/deploy/docker-compose.hajimi-bridge.example.yml docker-compose.hajimi-bridge.yml
-sudo docker compose --project-name open-ai-canvas \
-  -f docker-compose.deploy.yml -f docker-compose.hajimi-bridge.yml up -d --force-recreate
+# 以 web 容器当前使用的 compose 文件列表为准，在末尾追加 bridge 文件
+FILES=$(sudo docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' open-ai-canvas-web-1),$PWD/docker-compose.hajimi-bridge.yml
+ARGS=""; IFS=,; for f in $FILES; do ARGS="$ARGS -f $f"; done; unset IFS
+for svc in backend web; do
+  sudo docker compose --project-name open-ai-canvas --project-directory $PWD --env-file $PWD/.env $ARGS \
+    up -d --no-deps --force-recreate --wait $svc </dev/null
+done
 ```
 
-必须对所有服务一起 `--force-recreate`：`deploy/remote-deploy.py` 要求所有容器使用同一组 compose 文件，之后的部署会自动沿用这组文件。这一步会短暂重启数据库和 Redis，请在低峰期执行。
+线上 backend / web 用的是一长串 compose 文件（基础文件 + 历次源码发布的 `compose.source.json` 等覆盖），postgres / redis 只用基础文件。**不要**只带 `docker-compose.deploy.yml` 和追加文件去重建全部服务，那会丢掉这些覆盖。`deploy/remote-deploy.py` 以 web 容器的文件列表为准，并要求其他容器的文件列表是它的子集，所以 backend 和 web 要用同一组文件重建；数据库、Redis 和 yingce-agent 不用动。之后的部署会自动沿用这组文件。
+
+脚本通过 stdin 传给远端执行时，`docker compose up/exec` 要加 `</dev/null`，否则会把剩余脚本当作输入读走。
 
 ## 4. 数据库
 
