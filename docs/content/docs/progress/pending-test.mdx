@@ -17,9 +17,11 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 ## 仙凤API 视频协议
 
-- 已实现：独立 `xianfeng-video` 声明式插件（Provider `xianfeng-video`，默认 Base URL `https://xianfengapi.xyz`，不带 `/v1`），只覆盖 `seedance-2.5` 与 `JD2.5满参`。`POST /v1/videos` 只发 JSON：`model`、`prompt`、整数 `seconds`（大于 0 时）、`aspect_ratio`（`adaptive` 转 `auto`）、固定 `resolution: "720p"`；参考素材为 `images: [{url}]`、`videos: [{url, seconds}]`、`audios: [{url, seconds}]`，音视频 `seconds` 取素材库 `durationMs` 向上取整。首帧、尾帧图片按参考图发送（上游没有首尾帧语义）。空值省略。
+- 已实现：独立 `xianfeng-video` 声明式插件（Provider `xianfeng-video`，默认 Base URL `https://xianfengapi.xyz`，不带 `/v1`），只覆盖 `seedance-2.5` 与 `JD2.5满参`。`POST /v1/videos` 只发 JSON：`model`、`prompt`、整数 `seconds`（大于 0 时）、`aspect_ratio`（`adaptive` 转 `auto`）、固定 `resolution: "720p"`；参考素材为 `images: [{url, name}]`、`videos: [{url, name, seconds}]`、`audios: [{url, name, seconds}]`，音视频 `seconds` 取素材库 `durationMs` 向上取整。首帧、尾帧图片按参考图发送（上游没有首尾帧语义）。空值省略。
+- 已修复（1.0.1）：站内签名地址 `/api/public/resources/<id>/file?…` 没有文件后缀，上游返回“素材链接没有可识别后缀，请填写与真实格式一致的 name”。现在按素材 MIME 类型生成 `name`（如 `image1.png`、`video1.mov`、`audio1.wav`），编号与提示词里的“图片1”等一致；没有完整 MIME 的外链不发 `name`。提交前新增格式校验：图片 PNG/JPG/WEBP、视频 MP4/MOV/WEBM、音频 MP3/WAV/AAC/FLAC/OGG/M4A，`seedance-2.5` 音频只允许 MP3/WAV。
 - 已实现：声明 `requiresPublicMediaUrls` 与 `detachedPolling`，不声明 `idempotentCreate`（上游要求建单超时不要重复提交）。提交前校验提示词非空且不超过 45000 字、模型名含 `wan3` 时拒绝、画幅枚举、分辨率只允许 720p、素材数量（图片 ≤30、视频 ≤10、音频 ≤10、合计 ≤30）、输出时长 4–30 秒（带音视频或图片超过 9 张时 5–30 秒）、每条参考音视频 2–30 秒且必须有时长。音视频总时长 ≤30 秒无法用表达式求和，交给上游校验。查询 `GET /v1/videos/{id}`，成功且 `url` 为绝对地址时直接用；否则（含 JD2.5满参 只给 `content_url` 的情况）走 `/v1/videos/{id}/content` 带 Key 下载。
-- 已验证：协议单测覆盖请求体、排序、时长换算、默认省略、15 个校验拦截（逐条比对提示）与 3 个边界放行、状态与阶段映射、直链与相对地址、失败原因和结果下载；`go test ./internal/protocol -run Xianfeng` 通过。未用真实 Key 联调。
+- 已验证：协议单测覆盖请求体、排序、时长换算、`name` 生成（含 MIME 大小写和参数、无 MIME 时省略）、默认省略、18 个校验拦截（逐条比对提示）与 6 个边界放行、状态与阶段映射、直链与相对地址、失败原因和结果下载；`internal/protocol` 全包通过。未用真实 Key 联调。
+- [ ] 用站内素材（本地存储，签名地址无后缀）带参考图重新生成一次，确认不再出现“素材链接没有可识别后缀”，上游接受生成的 `name`。
 - [ ] 真实渠道：`seedance-2.5` 文生视频一次、带参考图一次，确认建单、轮询、成片持久化，以及完成响应实际返回 `url` 还是只有 `content_url`。
 - [ ] `JD2.5满参` 带图片、视频、音频混合参考生成一次，确认对象数组与向上取整的 `seconds` 被上游接受；确认宿主签名素材地址可被上游直接拉取（上游 HTTP 链接只允许 80/8091 端口）。
 - [ ] 确认 `/content` 的 302 跳转下载可用；画布里首帧连线的图片按参考图生成，效果符合预期。

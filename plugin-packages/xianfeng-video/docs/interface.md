@@ -37,9 +37,21 @@
 | --- | --- | --- | --- | --- |
 | `model` | string | 是 | `model` | 仙凤API 模型名，原样发送。 |
 | `prompt` | string | 是 | `prompt` | 不能为空，最多 45000 字。素材按“图片1”“视频1”“音频1”指代。 |
-| `images` | media[] | 否 | `images[{url}]` | 按 `order` 排序，发送公网 URL 对象，不带 `role`。 |
-| `videos` | media[] | 否 | `videos[{url, seconds}]` | 按 `order` 排序；`seconds` 为素材自身时长：素材库 `durationMs` 向上取整到整秒。 |
-| `audios` | media[] | 否 | `audios[{url, seconds}]` | 规则同参考视频。 |
+| `images` | media[] | 否 | `images[{url, name}]` | 按 `order` 排序，发送公网 URL 对象，不带 `role`。 |
+| `videos` | media[] | 否 | `videos[{url, name, seconds}]` | 按 `order` 排序；`seconds` 为素材自身时长：素材库 `durationMs` 向上取整到整秒。 |
+| `audios` | media[] | 否 | `audios[{url, name, seconds}]` | 规则同参考视频。 |
+
+### 素材 `name`
+
+宿主交给上游的签名地址形如 `https://<站点>/api/public/resources/<id>/file?expires=…&signature=…`，路径没有文件后缀。仙凤API 靠后缀识别素材格式，缺后缀时要求填写与真实格式一致的 `name`，并且不能改写素材链接（改写会破坏签名）。插件按素材的 MIME 类型生成 `name`，编号与排序后的位置一致，对应提示词里的“图片1”“视频1”“音频1”：
+
+| 类型 | MIME | `name` |
+| --- | --- | --- |
+| 图片 | `image/png` / `image/jpeg`（含 `image/jpg`、`image/pjpeg`）/ `image/webp` | `image1.png` / `image1.jpg` / `image1.webp` |
+| 视频 | `video/mp4` / `video/quicktime` / `video/webm` | `video1.mp4` / `video1.mov` / `video1.webm` |
+| 音频 | `audio/mpeg`（含 `audio/mp3`）/ `audio/wav`（含 `audio/x-wav`、`audio/wave`、`audio/vnd.wave`）/ `audio/aac` / `audio/flac` / `audio/ogg` / `audio/mp4`（含 `audio/x-m4a`、`audio/m4a`） | `audio1.mp3` / `audio1.wav` / `audio1.aac` / `audio1.flac` / `audio1.ogg` / `audio1.m4a` |
+
+MIME 参数（如 `; codecs=…`）会先去掉再匹配。没有完整 MIME 类型的素材（例如直接填写的外部链接，或只标了 `image` 这类泛称）不发送 `name`，也不做格式校验，由上游按链接后缀识别。
 | `duration` | integer | 否 | `seconds` | 大于 0 时以整数发送；为 0 时省略，由上游取默认值。 |
 | `aspectRatio` | string | 否 | `aspect_ratio` | 去空白转小写后发送；`adaptive` 转为 `auto`；为空时省略。 |
 | `resolution` | string | 否 | `resolution` | 总是发送 `720p`；用户选了其他分辨率时提交前拒绝。 |
@@ -55,9 +67,9 @@
   "seconds": 10,
   "aspect_ratio": "16:9",
   "resolution": "720p",
-  "images": [{ "url": "https://cdn.example.com/reference.png" }],
-  "videos": [{ "url": "https://cdn.example.com/reference.mp4", "seconds": 5 }],
-  "audios": [{ "url": "https://cdn.example.com/reference.wav", "seconds": 3 }]
+  "images": [{ "url": "https://canvas.example.com/api/public/resources/r1/file?expires=…&signature=…", "name": "image1.png" }],
+  "videos": [{ "url": "https://canvas.example.com/api/public/resources/r2/file?expires=…&signature=…", "name": "video1.mp4", "seconds": 5 }],
+  "audios": [{ "url": "https://canvas.example.com/api/public/resources/r3/file?expires=…&signature=…", "name": "audio1.wav", "seconds": 3 }]
 }
 ```
 
@@ -70,6 +82,7 @@
 - `aspectRatio` 非空时必须是 `auto`、`adaptive`、`16:9`、`9:16`、`1:1`、`4:3`、`3:4`、`21:9` 之一。
 - `resolution` 非空时必须是 `720p`（不区分大小写）。
 - 参考图 ≤30、参考视频 ≤10、参考音频 ≤10，三者合计 ≤30。
+- MIME 类型完整（含 `/`）的素材必须是上表列出的格式（图片 PNG/JPG/WEBP，视频 MP4/MOV/WEBM，音频 MP3/WAV/AAC/FLAC/OGG/M4A），否则无法生成可识别的 `name`；`seedance-2.5` 的参考音频只接受 MP3 和 WAV。
 - 输出时长为 0（不发送）或：无参考音视频且参考图 ≤9 张时 4–30 秒，否则 5–30 秒。
 - 每个参考视频、参考音频的素材时长必须在 2–30 秒之间；没有时长信息（例如未入素材库的外部链接）时拒绝，避免上游因缺少 `seconds` 返回 400。
 
@@ -98,9 +111,9 @@
   "apiVersion": "yingce.plugin/v2",
   "id": "xianfeng-video",
   "name": "仙凤API 视频",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "影策",
-  "description": "仙凤API（xianfengapi.xyz）视频协议：JSON 提交 /v1/videos，适配 seedance-2.5 与 JD2.5满参，参考图/视频/音频均为对象数组，音视频按素材真实时长填写 seconds；查询原任务，成片优先取直链，缺失时走 /content 鉴权下载。",
+  "description": "仙凤API（xianfengapi.xyz）视频协议：JSON 提交 /v1/videos，适配 seedance-2.5 与 JD2.5满参，参考图/视频/音频均为对象数组并按 MIME 类型附带 name，音视频按素材真实时长填写 seconds；查询原任务，成片优先取直链，缺失时走 /content 鉴权下载。",
   "documentation": "<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>",
   "permissions": [
     "generation.run",
@@ -157,22 +170,22 @@
             "name": "images",
             "type": "media[]",
             "required": false,
-            "mapping": "images[{url}]",
-            "description": "参考图按 order 排序，发送公网 URL 对象数组，最多 30 张。上游没有首尾帧语义，首帧、尾帧图片同样按参考图发送。"
+            "mapping": "images[{url,name}]",
+            "description": "参考图按 order 排序，发送公网 URL 对象数组，最多 30 张；name 按 MIME 类型生成（如 image1.png），上游据此识别没有后缀的签名地址。上游没有首尾帧语义，首帧、尾帧图片同样按参考图发送。"
           },
           {
             "name": "videos",
             "type": "media[]",
             "required": false,
-            "mapping": "videos[{url,seconds}]",
-            "description": "参考视频按 order 排序，最多 10 个；seconds 为素材自身时长，按素材库记录的毫秒时长向上取整，单条 2–30 秒。"
+            "mapping": "videos[{url,name,seconds}]",
+            "description": "参考视频按 order 排序，最多 10 个；name 按 MIME 类型生成（如 video1.mp4）；seconds 为素材自身时长，按素材库记录的毫秒时长向上取整，单条 2–30 秒。"
           },
           {
             "name": "audios",
             "type": "media[]",
             "required": false,
-            "mapping": "audios[{url,seconds}]",
-            "description": "参考音频按 order 排序，最多 10 个，上游只接受 MP3/WAV；seconds 规则同参考视频。"
+            "mapping": "audios[{url,name,seconds}]",
+            "description": "参考音频按 order 排序，最多 10 个；name 按 MIME 类型生成（如 audio1.mp3）；seedance-2.5 只接受 MP3/WAV；seconds 规则同参考视频。"
           },
           {
             "name": "duration",
@@ -462,6 +475,359 @@
           },
           {
             "assert": {
+              "$and": [
+                {
+                  "$eq": [
+                    {
+                      "$len": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$and": [
+                              {
+                                "$gt": [
+                                  {
+                                    "$len": {
+                                      "$split": [
+                                        {
+                                          "$lower": {
+                                            "$trim": {
+                                              "$at": [
+                                                {
+                                                  "$split": [
+                                                    {
+                                                      "$ref": "media.mimeType"
+                                                    },
+                                                    ";"
+                                                  ]
+                                                },
+                                                0
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "/"
+                                      ]
+                                    }
+                                  },
+                                  1
+                                ]
+                              },
+                              {
+                                "$not": {
+                                  "$in": [
+                                    {
+                                      "$lower": {
+                                        "$trim": {
+                                          "$at": [
+                                            {
+                                              "$split": [
+                                                {
+                                                  "$ref": "media.mimeType"
+                                                },
+                                                ";"
+                                              ]
+                                            },
+                                            0
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    [
+                                      "image/png",
+                                      "image/jpeg",
+                                      "image/jpg",
+                                      "image/pjpeg",
+                                      "image/webp"
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    0
+                  ]
+                },
+                {
+                  "$eq": [
+                    {
+                      "$len": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.videos"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$and": [
+                              {
+                                "$gt": [
+                                  {
+                                    "$len": {
+                                      "$split": [
+                                        {
+                                          "$lower": {
+                                            "$trim": {
+                                              "$at": [
+                                                {
+                                                  "$split": [
+                                                    {
+                                                      "$ref": "media.mimeType"
+                                                    },
+                                                    ";"
+                                                  ]
+                                                },
+                                                0
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "/"
+                                      ]
+                                    }
+                                  },
+                                  1
+                                ]
+                              },
+                              {
+                                "$not": {
+                                  "$in": [
+                                    {
+                                      "$lower": {
+                                        "$trim": {
+                                          "$at": [
+                                            {
+                                              "$split": [
+                                                {
+                                                  "$ref": "media.mimeType"
+                                                },
+                                                ";"
+                                              ]
+                                            },
+                                            0
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    [
+                                      "video/mp4",
+                                      "video/quicktime",
+                                      "video/webm"
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    0
+                  ]
+                },
+                {
+                  "$eq": [
+                    {
+                      "$len": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.audios"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$and": [
+                              {
+                                "$gt": [
+                                  {
+                                    "$len": {
+                                      "$split": [
+                                        {
+                                          "$lower": {
+                                            "$trim": {
+                                              "$at": [
+                                                {
+                                                  "$split": [
+                                                    {
+                                                      "$ref": "media.mimeType"
+                                                    },
+                                                    ";"
+                                                  ]
+                                                },
+                                                0
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "/"
+                                      ]
+                                    }
+                                  },
+                                  1
+                                ]
+                              },
+                              {
+                                "$not": {
+                                  "$in": [
+                                    {
+                                      "$lower": {
+                                        "$trim": {
+                                          "$at": [
+                                            {
+                                              "$split": [
+                                                {
+                                                  "$ref": "media.mimeType"
+                                                },
+                                                ";"
+                                              ]
+                                            },
+                                            0
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    [
+                                      "audio/mpeg",
+                                      "audio/mp3",
+                                      "audio/wav",
+                                      "audio/x-wav",
+                                      "audio/wave",
+                                      "audio/vnd.wave",
+                                      "audio/aac",
+                                      "audio/x-aac",
+                                      "audio/flac",
+                                      "audio/x-flac",
+                                      "audio/ogg",
+                                      "audio/mp4",
+                                      "audio/x-m4a",
+                                      "audio/m4a"
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    0
+                  ]
+                }
+              ]
+            },
+            "message": "仙凤API 参考素材格式只支持：图片 PNG/JPG/WEBP，视频 MP4/MOV/WEBM，音频 MP3/WAV/AAC/FLAC/OGG/M4A"
+          },
+          {
+            "assert": {
+              "$or": [
+                {
+                  "$not": {
+                    "$gt": [
+                      {
+                        "$len": {
+                          "$split": [
+                            {
+                              "$lower": {
+                                "$ref": "request.model"
+                              }
+                            },
+                            "seedance"
+                          ]
+                        }
+                      },
+                      1
+                    ]
+                  }
+                },
+                {
+                  "$eq": [
+                    {
+                      "$len": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.audios"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$and": [
+                              {
+                                "$gt": [
+                                  {
+                                    "$len": {
+                                      "$split": [
+                                        {
+                                          "$lower": {
+                                            "$trim": {
+                                              "$at": [
+                                                {
+                                                  "$split": [
+                                                    {
+                                                      "$ref": "media.mimeType"
+                                                    },
+                                                    ";"
+                                                  ]
+                                                },
+                                                0
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "/"
+                                      ]
+                                    }
+                                  },
+                                  1
+                                ]
+                              },
+                              {
+                                "$not": {
+                                  "$in": [
+                                    {
+                                      "$lower": {
+                                        "$trim": {
+                                          "$at": [
+                                            {
+                                              "$split": [
+                                                {
+                                                  "$ref": "media.mimeType"
+                                                },
+                                                ";"
+                                              ]
+                                            },
+                                            0
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    [
+                                      "audio/mpeg",
+                                      "audio/mp3",
+                                      "audio/wav",
+                                      "audio/x-wav",
+                                      "audio/wave",
+                                      "audio/vnd.wave"
+                                    ]
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    0
+                  ]
+                }
+              ]
+            },
+            "message": "仙凤API seedance-2.5 的参考音频只支持 MP3 和 WAV"
+          },
+          {
+            "assert": {
               "$eq": [
                 {
                   "$len": {
@@ -574,6 +940,141 @@
                   "in": {
                     "url": {
                       "$ref": "media.value"
+                    },
+                    "name": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "image/png"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "image",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".png"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "image/jpeg",
+                                  "image/jpg",
+                                  "image/pjpeg"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "image",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".jpg"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "image/webp"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "image",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".webp"
+                              ]
+                            }
+                          }
+                        ],
+                        "default": null
+                      }
                     }
                   }
                 }
@@ -591,6 +1092,139 @@
                   "in": {
                     "url": {
                       "$ref": "media.value"
+                    },
+                    "name": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "video/mp4"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "video",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".mp4"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "video/quicktime"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "video",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".mov"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "video/webm"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "video",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".webm"
+                              ]
+                            }
+                          }
+                        ],
+                        "default": null
+                      }
                     },
                     "seconds": {
                       "$divide": [
@@ -621,6 +1255,273 @@
                   "in": {
                     "url": {
                       "$ref": "media.value"
+                    },
+                    "name": {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "audio/mpeg",
+                                  "audio/mp3"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "audio",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".mp3"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "audio/wav",
+                                  "audio/x-wav",
+                                  "audio/wave",
+                                  "audio/vnd.wave"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "audio",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".wav"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "audio/aac",
+                                  "audio/x-aac"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "audio",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".aac"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "audio/flac",
+                                  "audio/x-flac"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "audio",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".flac"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "audio/ogg"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "audio",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".ogg"
+                              ]
+                            }
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$at": [
+                                        {
+                                          "$split": [
+                                            {
+                                              "$ref": "media.mimeType"
+                                            },
+                                            ";"
+                                          ]
+                                        },
+                                        0
+                                      ]
+                                    }
+                                  }
+                                },
+                                [
+                                  "audio/mp4",
+                                  "audio/x-m4a",
+                                  "audio/m4a"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$concat": [
+                                "audio",
+                                {
+                                  "$toString": {
+                                    "$add": [
+                                      {
+                                        "$ref": "mediaIndex"
+                                      },
+                                      1
+                                    ]
+                                  }
+                                },
+                                ".m4a"
+                              ]
+                            }
+                          }
+                        ],
+                        "default": null
+                      }
                     },
                     "seconds": {
                       "$divide": [

@@ -15,6 +15,11 @@ func xianfengClip(url string, durationMs int64, order int) MediaReference {
 	return MediaReference{URL: url, Order: order, Metadata: map[string]any{"durationMs": durationMs}}
 }
 
+// xianfengSigned 模拟宿主交给上游的站内签名地址：路径以 /file 结尾，没有文件后缀。
+func xianfengSigned(id string) string {
+	return "https://canvas.example/api/public/resources/" + id + "/file?expires=1&signature=s&variant=original"
+}
+
 func TestOfficialXianfengVideoCreateBody(t *testing.T) {
 	adapter := xianfengAdapter(t)
 	metadata := adapter.Metadata()
@@ -24,12 +29,14 @@ func TestOfficialXianfengVideoCreateBody(t *testing.T) {
 	request := GenerationRequest{
 		Model: "JD2.5满参", Prompt: "以图片1为场景，参考视频1的运镜，配合音频1的节奏", Duration: 10, AspectRatio: " Adaptive ", Resolution: "720P",
 		Images: []MediaReference{
-			{URL: "https://cdn.example/second.png", Order: 2, Role: "last_frame"},
-			{URL: "https://cdn.example/first.png", Order: 1, Role: "first_frame"},
+			{URL: xianfengSigned("second"), Order: 2, Role: "last_frame", MIMEType: " Image/JPEG "},
+			{URL: xianfengSigned("first"), Order: 1, Role: "first_frame", MIMEType: "image/png"},
 		},
-		Videos: []MediaReference{xianfengClip("https://cdn.example/clip.mp4", 5400, 0)},
-		Audios: []MediaReference{xianfengClip("https://cdn.example/beat.wav", 3000, 0)},
+		Videos: []MediaReference{xianfengClip(xianfengSigned("clip"), 5400, 0)},
+		Audios: []MediaReference{xianfengClip(xianfengSigned("beat"), 3000, 0)},
 	}
+	request.Videos[0].MIMEType = "video/quicktime"
+	request.Audios[0].MIMEType = "audio/x-wav; codecs=1"
 	create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
 	if err != nil {
 		t.Fatal(err)
@@ -50,23 +57,66 @@ func TestOfficialXianfengVideoCreateBody(t *testing.T) {
 	if len(images) != 2 {
 		t.Fatalf("xianfeng images = %#v", body["images"])
 	}
-	for index, want := range []string{"https://cdn.example/first.png", "https://cdn.example/second.png"} {
+	for index, want := range []struct{ url, name string }{{xianfengSigned("first"), "image1.png"}, {xianfengSigned("second"), "image2.jpg"}} {
 		item, _ := images[index].(map[string]any)
-		if len(item) != 1 || item["url"] != want {
-			t.Fatalf("xianfeng image %d = %#v", index, images[index])
+		if len(item) != 2 || item["url"] != want.url || item["name"] != want.name {
+			t.Fatalf("xianfeng image %d = %#v, want %#v", index, images[index], want)
 		}
 	}
 	for key, want := range map[string]struct {
-		url     string
-		seconds float64
-	}{"videos": {"https://cdn.example/clip.mp4", 6}, "audios": {"https://cdn.example/beat.wav", 3}} {
+		url, name string
+		seconds   float64
+	}{"videos": {xianfengSigned("clip"), "video1.mov", 6}, "audios": {xianfengSigned("beat"), "audio1.wav", 3}} {
 		items, _ := body[key].([]any)
 		if len(items) != 1 {
 			t.Fatalf("xianfeng %s = %#v", key, body[key])
 		}
 		item, _ := items[0].(map[string]any)
-		if len(item) != 2 || item["url"] != want.url || item["seconds"] != want.seconds {
-			t.Fatalf("xianfeng %s item = %#v, want url %s seconds %v", key, item, want.url, want.seconds)
+		if len(item) != 3 || item["url"] != want.url || item["name"] != want.name || item["seconds"] != want.seconds {
+			t.Fatalf("xianfeng %s item = %#v, want %#v", key, item, want)
+		}
+	}
+}
+
+func TestOfficialXianfengVideoMediaNames(t *testing.T) {
+	adapter := xianfengAdapter(t)
+	request := GenerationRequest{
+		Model: "JD2.5满参", Prompt: "p",
+		Images: []MediaReference{
+			{URL: xianfengSigned("i1"), MIMEType: "image/webp"},
+			{URL: "https://cdn.example/external.png"},
+		},
+		Videos: []MediaReference{xianfengClip(xianfengSigned("v1"), 3000, 1), xianfengClip(xianfengSigned("v2"), 3000, 2)},
+		Audios: []MediaReference{xianfengClip(xianfengSigned("a1"), 3000, 1), xianfengClip(xianfengSigned("a2"), 3000, 2)},
+	}
+	request.Videos[0].MIMEType, request.Videos[1].MIMEType = "video/mp4", "video/webm"
+	request.Audios[0].MIMEType, request.Audios[1].MIMEType = "audio/mpeg", "audio/x-m4a"
+	create, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := manifestTestBody(t, create)
+	for key, wants := range map[string][]any{
+		"images": {"image1.webp", nil},
+		"videos": {"video1.mp4", "video2.webm"},
+		"audios": {"audio1.mp3", "audio2.m4a"},
+	} {
+		items, _ := body[key].([]any)
+		if len(items) != len(wants) {
+			t.Fatalf("xianfeng %s = %#v", key, body[key])
+		}
+		for index, want := range wants {
+			item, _ := items[index].(map[string]any)
+			name, exists := item["name"]
+			if want == nil {
+				if exists {
+					t.Fatalf("xianfeng %s[%d] without MIME should omit name: %#v", key, index, item)
+				}
+				continue
+			}
+			if name != want {
+				t.Fatalf("xianfeng %s[%d] name = %#v, want %s", key, index, name, want)
+			}
 		}
 	}
 }
@@ -123,6 +173,9 @@ func TestOfficialXianfengVideoValidations(t *testing.T) {
 		"clip without duration": {GenerationRequest{Model: "JD2.5满参", Prompt: "p", Videos: []MediaReference{{URL: "https://cdn.example/external.mp4"}}}, "缺少时长信息"},
 		"clip too short":        {GenerationRequest{Model: "JD2.5满参", Prompt: "p", Audios: []MediaReference{xianfengClip("https://cdn.example/a.mp3", 1500, 1)}}, "每条需为 2–30 秒"},
 		"clip too long":         {GenerationRequest{Model: "JD2.5满参", Prompt: "p", Videos: []MediaReference{xianfengClip("https://cdn.example/v.mp4", 30500, 1)}}, "每条需为 2–30 秒"},
+		"unsupported image":     {GenerationRequest{Model: "JD2.5满参", Prompt: "p", Images: []MediaReference{{URL: xianfengSigned("gif"), MIMEType: "image/gif"}}}, "参考素材格式只支持"},
+		"unsupported video":     {GenerationRequest{Model: "JD2.5满参", Prompt: "p", Videos: []MediaReference{{URL: xianfengSigned("avi"), MIMEType: "video/x-msvideo", Metadata: map[string]any{"durationMs": 3000}}}}, "参考素材格式只支持"},
+		"seedance aac audio":    {GenerationRequest{Model: "seedance-2.5", Prompt: "p", Audios: []MediaReference{{URL: xianfengSigned("aac"), MIMEType: "audio/aac", Metadata: map[string]any{"durationMs": 3000}}}}, "只支持 MP3 和 WAV"},
 	} {
 		_, err := adapter.BuildCreate(context.Background(), RequestContext{Request: test.request})
 		if err == nil || !strings.Contains(err.Error(), test.message) {
@@ -133,6 +186,9 @@ func TestOfficialXianfengVideoValidations(t *testing.T) {
 		"4s with 9 images": {Model: "seedance-2.5", Prompt: "p", Duration: 4, Images: images(9), AspectRatio: "21:9"},
 		"5s with clips":    {Model: "JD2.5满参", Prompt: "p", Duration: 5, Videos: clips(10), Audios: clips(10), Images: images(10)},
 		"30s boundary":     {Model: "JD2.5满参", Prompt: "p", Duration: 30, Videos: []MediaReference{xianfengClip("https://cdn.example/v.mp4", 30000, 1)}},
+		"JD aac audio":     {Model: "JD2.5满参", Prompt: "p", Audios: []MediaReference{{URL: xianfengSigned("aac"), MIMEType: "audio/aac", Metadata: map[string]any{"durationMs": 3000}}}},
+		"seedance wav":     {Model: "seedance-2.5", Prompt: "p", Audios: []MediaReference{{URL: xianfengSigned("wav"), MIMEType: "audio/wav", Metadata: map[string]any{"durationMs": 3000}}}},
+		"generic type":     {Model: "JD2.5满参", Prompt: "p", Images: []MediaReference{{URL: "https://cdn.example/external.png", MIMEType: "image"}}},
 	} {
 		if _, err := adapter.BuildCreate(context.Background(), RequestContext{Request: request}); err != nil {
 			t.Fatalf("%s: unexpected validation error %v", name, err)
