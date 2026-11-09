@@ -3,6 +3,7 @@ import { App } from "antd";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { AuthPanel } from "@/components/auth/auth-panel";
+import { brandOAuthMessage } from "@/lib/oauth-brand";
 import { authPageURL, rememberReferralCode, safeAuthNext, type AuthView } from "@/lib/auth-entry";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -24,7 +25,7 @@ export function AuthRoutePanel({ view }: { view: AuthView }) {
 
     useEffect(() => {
         const oauthError = params.get("oauth_error");
-        if (oauthError) message.error(oauthError);
+        if (oauthError) message.error(brandOAuthMessage(oauthError));
     }, [message, params]);
 
     return <AuthPanel variant="page" view={view} next={next} onViewChange={(target) => navigate(authPageURL(target, next))} onAuthenticated={() => navigate(next, { replace: true })} />;

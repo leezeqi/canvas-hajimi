@@ -15,6 +15,17 @@ description: 影策后端核心持久化表与状态边界
 
 `plugin_user_visibilities` 保存协议插件是否对普通用户开放：`plugin_id` 为主键，`hidden_from_users` 为 true 表示仅管理员可见，另有 `updated_by` 和时间戳。没有记录即对用户开放。新库由基线迁移按 `Models()` 建表，所有插件默认开放；已有数据库在 `fork_schema.go` 里建表，并在建表的同一次迁移中把原先写死在代码里的 `aotian-video`、`juchuang-video`、`nineyapi-video`、`nskeven-video`、`sd25pp-video`、`uutoken-video` 写成隐藏，保持升级前的行为。之后重复迁移不再写入，也不覆盖管理员的修改。卸载上传插件时一并删除该插件的记录。`migrate-sqlite-postgres` 的表清单包含这张表。
 
+## 二改：hajimi 余额互通（不占用迁移版本）
+
+四张表都是二改新增：新库由基线迁移按 `Models()` 建表，已有数据库由 `fork_schema.go` 调用 `fork_hajimi_schema.go` 补建，不登记迁移版本，也不改 `CurrentSchemaVersion`。`migrate-sqlite-postgres` 的表清单包含这四张表。
+
+| 表 | 用途 | 关键边界 |
+| --- | --- | --- |
+| `hajimi_bridge_transfers` | hajimi 余额与积分之间的划转（`direction` 为 `in` 转入、`out` 转回） | `id` 同时是发给 hajimi 的划转编号（`yct_` + 32 位小写十六进制）；`(user_id, client_key)` 唯一，浏览器重试不会重复划转；状态只做带条件的迁移；积分入账、扣回和退款都写带唯一 `reference_key` 的积分流水（`hajimi:in:`、`hajimi:out:`、`hajimi:out-refund:`），重复执行只入账一次 |
+| `hajimi_bridge_user_settings` | 用户的自动转入设置 | `user_id` 主键；阈值、每次金额、每日上限，单位微积分 |
+| `hajimi_bridge_user_state` | hajimi 关联用户的同步状态 | `user_id` 主键；记录 hajimi 用户 id、最近一次的状态、授权和 `auth_epoch`，以及是否由互通禁用（`disabled_by_bridge`），用于禁用、恢复和踢下线 |
+| `hajimi_bridge_state` | 后台任务的键值状态 | 游标、最近一次对账结果等 |
+
 ## 邮件发送记录与消费日报订阅（Schema 91）
 
 版本 91 `email_logs_and_notifications` 新增两张表，只建表不改旧数据：

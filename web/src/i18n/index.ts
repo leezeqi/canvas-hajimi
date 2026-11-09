@@ -10,6 +10,7 @@ import { frFR } from "./messages/fr-FR";
 import { jaJP } from "./messages/ja-JP";
 import { koKR } from "./messages/ko-KR";
 import { zhCN } from "./messages/zh-CN";
+import { applyForkI18nOverrides } from "./fork-overrides";
 
 const CORE_CATALOGS: Record<AppLocale, object> = { "zh-CN": zhCN, "en-US": enUS, "fr-FR": frFR, "de-DE": deDE, "ja-JP": jaJP, "ko-KR": koKR };
 
@@ -32,6 +33,8 @@ void i18n.use(initReactI18next).init({
     returnNull: false,
     interpolation: { escapeValue: false },
 });
+// 二改：hajimi 互通的品牌替换与新增文案（见 fork-overrides.ts）。
+applyForkI18nOverrides(i18n);
 
 useLocaleStore.subscribe((state, previous) => {
     if (state.locale !== previous.locale) void i18n.changeLanguage(state.locale);

@@ -123,6 +123,7 @@ type Service struct {
 	// dramaTails 跟踪调度循环之外的尾帧抽取；dramaBackgroundRunner 为空时用后台 worker，测试替换为同步执行。
 	dramaTails            dramaTailWorker
 	dramaBackgroundRunner func(fn func()) bool
+	hajimiBridge          forkHajimiBridgeHolder
 }
 
 const taskWorkerConcurrency = 3
@@ -215,6 +216,7 @@ func (s *Service) StartWorker() {
 	s.startDramaScheduler()
 	s.startInspirationFeedWorker()
 	s.startConsumptionReportWorker()
+	s.startHajimiBridgeWorker()
 	go s.syncAgentSessionLimit()
 	s.runWorkerLoop(func(ctx context.Context) {
 		ticker := time.NewTicker(3 * time.Second)

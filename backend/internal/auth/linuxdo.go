@@ -407,11 +407,8 @@ func validateLinuxDOSetting(value linuxDOSettingValue) error {
 	if value.ClientID == "" || value.ClientSecret == "" || value.AuthorizationURL == "" || value.TokenURL == "" || value.UserInfoURL == "" || value.RedirectURL == "" {
 		return kernel.BadAuthRequest("启用 Linux.do 登录前请完整填写 Client、端点和回调配置")
 	}
-	for _, rawURL := range []string{value.AuthorizationURL, value.TokenURL, value.UserInfoURL} {
-		parsed, err := url.Parse(rawURL)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
-			return kernel.BadAuthRequest("Linux.do 授权、Token 和用户信息地址必须是有效的 HTTPS URL")
-		}
+	if err := validateLinuxDOEndpointURLs(value); err != nil {
+		return err
 	}
 	redirectURL, err := url.Parse(value.RedirectURL)
 	if err != nil || redirectURL.Host == "" || (redirectURL.Scheme != "https" && !(redirectURL.Scheme == "http" && isLoopbackOAuthHost(redirectURL.Hostname()))) {

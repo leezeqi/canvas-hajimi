@@ -221,7 +221,7 @@ test("task-first settings reveal dependent configuration only after the primary 
 
     expect(accessSource).toContain("{draftLinuxDOEnabled ? (");
     expect(accessSource).toContain('title="1. 是否允许创建新账号"');
-    expect(accessSource).toContain('title="2. 是否开放 Linux.do 登录"');
+    expect(accessSource).toContain('title="2. 是否开放 OAuth 登录（当前对接 hajimi）"');
 
     // 功能开放按前台位置分组；子开关在上级关闭时不可切换，跨组依赖在行内提示。
     expect(featureSource).toContain('title: "创作功能"');

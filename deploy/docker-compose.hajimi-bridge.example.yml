@@ -1,0 +1,31 @@
+# hajimi 互通（登录 + 余额划转）的影策侧 Compose 追加文件示例。
+#
+# 用法（服务器上一次性操作，详见 deploy/HAJIMI_BRIDGE.md）：
+#   1. 复制为安装目录下的 docker-compose.hajimi-bridge.yml；
+#   2. 在 .env 里填写下面引用的 HAJIMI_* 变量；
+#   3. 让所有服务带上这份文件重新创建一次：
+#      docker compose --project-name open-ai-canvas \
+#        -f docker-compose.deploy.yml -f docker-compose.hajimi-bridge.yml up -d --force-recreate
+#   之后 deploy/remote-deploy.py 会沿用容器标签里记录的文件列表，无需再次操作。
+#
+# 注意：基础 compose 的 backend 没有声明 networks（使用 default），这里必须同时列出 default，
+# 否则 backend 会脱离 postgres/redis/web 所在的网络。
+services:
+  backend:
+    environment:
+      HAJIMI_BRIDGE_ENABLED: ${HAJIMI_BRIDGE_ENABLED:-false}
+      HAJIMI_BRIDGE_URL: ${HAJIMI_BRIDGE_URL:-http://hajimi-bridge:8080}
+      HAJIMI_BRIDGE_KEY_ID: ${HAJIMI_BRIDGE_KEY_ID:-}
+      HAJIMI_BRIDGE_SECRET: ${HAJIMI_BRIDGE_SECRET:-}
+      HAJIMI_BRIDGE_EXPECTED_IDP_HOST: ${HAJIMI_BRIDGE_EXPECTED_IDP_HOST:-hajimi.chat}
+      HAJIMI_PUBLIC_URL: ${HAJIMI_PUBLIC_URL:-https://hajimi.chat}
+      # 可选：毛利报表里算作 hajimi 渠道的主机名（逗号分隔）；留空时按 EXPECTED_IDP_HOST 及其子域名识别。
+      HAJIMI_BRIDGE_COST_CHANNEL_HOSTS: ${HAJIMI_BRIDGE_COST_CHANNEL_HOSTS:-}
+    networks:
+      default: {}
+      yingce_bridge: {}
+
+networks:
+  yingce_bridge:
+    external: true
+    name: yingce_bridge

@@ -1057,3 +1057,27 @@ install 的 Base URL、协议、能力和成本全部从服务端快照读取，
 ### 系统渠道参考素材发送方式
 
 管理端创建/更新渠道的现有 JSON 请求及渠道响应支持可选 `mediaTransport`，包括独立的 `image`、`audio`、`video` 字段。渠道未提交此对象时保留原设置，提交空对象恢复协议默认。模型的同名配置位于 `capabilityConfig.mediaTransport`，支持 `inherit`（跟随渠道）、`protocol`（使用协议默认并取消渠道强制值）、`url`、`base64`。后端执行任务时重新读取管理员配置，不接受客户端任务覆盖系统渠道策略。此字段只影响参考素材输入，不改变结果 `response_format`。
+
+## 二改：hajimi 余额互通
+
+只有使用 hajimi 账号登录的账号（`user_identities.provider = linuxdo`、`subject` 以 `hajimi:` 开头，且后台 OAuth 授权地址的域名与 `HAJIMI_BRIDGE_EXPECTED_IDP_HOST` 一致）能用。`HAJIMI_BRIDGE_ENABLED` 关闭或配置不全时接口返回 `hajimi_bridge_disabled`。金额单位为微积分，1 积分 = 1 美元。部署与 hajimi 侧配置见 `deploy/HAJIMI_BRIDGE.md`。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/hajimi-bridge/wallet` | 当前用户的 hajimi 余额、今日已转入与上限、可转回额度、自动转入设置；hajimi 不可达时 `reachable=false`，接口本身不报错 |
+| POST | `/api/hajimi-bridge/transfers` | 转入或转回：`{direction: "in" \| "out", amountMicro, idempotencyKey, source?}`；同一用户同一 `idempotencyKey` 只产生一笔划转；服务端同步等待 hajimi 最多约 8 秒，返回的状态可能仍是 `pending` |
+| GET | `/api/hajimi-bridge/transfers?page=&pageSize=` | 当前用户的划转记录 |
+| PUT | `/api/hajimi-bridge/auto-topup` | 保存自动转入设置 `{enabled, thresholdMicro, amountMicro, dailyLimitMicro}` |
+| GET | `/api/admin/hajimi-bridge/overview` | 管理员：连接配置、hajimi 实时汇总、最近一次对账、待人工处理的划转 |
+| POST | `/api/admin/hajimi-bridge/transfers/:id/retry` | 管理员：按原划转编号重新向 hajimi 确认，不会重复扣款 |
+| GET | `/api/admin/hajimi-bridge/margin?from=&to=&utcOffsetMinutes=` | 管理员：毛利报表，逐日对比已结算订单实收与 hajimi 对运营 key 的扣费；日期含两端、最多 92 天，默认最近 7 天、按北京时间（480）切日；hajimi 不可用时影策收入照常返回 |
+
+| code | HTTP | reason | 含义 |
+| --- | --- | --- | --- |
+| 403 | 403 | `hajimi_bridge_disabled` | 互通未启用或配置不全 |
+| 403 | 403 | `hajimi_not_linked` | 当前账号不是 hajimi 账号 |
+| 503 | 503 | `hajimi_unavailable` | hajimi 暂时无法连接，可稍后重试 |
+| 400 | 400 | `hajimi_withdraw_exceeds_net_in` | 转回金额超过从 hajimi 转入的净额 |
+| 409 | 409 | `hajimi_transfer_finished` | 管理员重试的划转已经结束 |
+| 409 | 409 | `hajimi_needs_manual_review` | 两边记录矛盾，需要管理员核对 |
+| 400 | 400 | `insufficient_credits` | 积分不足；前端据此提供“从 hajimi 余额转入” |

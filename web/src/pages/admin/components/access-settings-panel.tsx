@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useBlocker } from "react-router";
 
 import { cn } from "@/lib/utils";
+import { OAUTH_PROVIDER_NAME } from "@/lib/oauth-brand";
+import { oauthEndpointURLError } from "@/lib/oauth-endpoint-url";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { getAdminLinuxDOSetting, getAdminRegistrationSetting, updateAdminLinuxDOSetting, updateAdminRegistrationSetting, type LinuxDOSetting, type RegistrationSetting } from "@/services/api/wallet";
 import type { AuthLoginMode } from "@/services/api/auth";
@@ -157,7 +159,7 @@ export default function AccessSettingsPanel() {
         setDraftLinuxDOEnabled(linuxdo.enabled);
         setDirty(false);
         setSaveError("");
-        message.info("已撤销 Linux.do 登录的未保存调整");
+        message.info("已撤销 OAuth 登录的未保存调整");
     };
 
     const saveAgreement = async () => {
@@ -267,12 +269,12 @@ export default function AccessSettingsPanel() {
         setSaveError("");
         try {
             const result = await updateAdminLinuxDOSetting(expected);
-            if (!linuxDOResponseMatches(result.setting, expected)) throw new Error("服务端返回的 Linux.do 配置与本次保存内容不一致，请重新读取后核对");
+            if (!linuxDOResponseMatches(result.setting, expected)) throw new Error("服务端返回的 OAuth 登录配置与本次保存内容不一致，请重新读取后核对");
             setLinuxdo(result.setting);
             setDirty(false);
-            message.success("Linux.do 登录配置已保存");
+            message.success("OAuth 登录配置已保存");
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : "保存 Linux.do 配置失败";
+            const errorMessage = error instanceof Error ? error.message : "保存 OAuth 登录配置失败";
             setSaveError(`${errorMessage}。未自动重试，请重新读取当前配置后再决定是否保存。`);
             message.error(errorMessage);
             throw error;
@@ -345,11 +347,11 @@ export default function AccessSettingsPanel() {
                         <ShieldCheck className="size-4" aria-hidden="true" />
                     </span>
                     <div>
-                        <strong>{dirty ? "Linux.do 有未保存的调整" : "登录与注册设置"}</strong>
+                        <strong>{dirty ? "OAuth 登录有未保存的调整" : "登录与注册设置"}</strong>
                         <p>
                             {dirty
                                 ? "完成接入信息后保存生效。"
-                                : `新用户注册${registration.enabled ? "已开放" : "已关闭"} · Linux.do ${linuxdo.enabled ? "已启用" : "未启用"} · ${(registration.loginMode ?? "modal") === "page" ? "独立页面登录" : "弹窗登录"}`}
+                                : `新用户注册${registration.enabled ? "已开放" : "已关闭"} · ${OAUTH_PROVIDER_NAME} 登录${linuxdo.enabled ? "已启用" : "未启用"} · ${(registration.loginMode ?? "modal") === "page" ? "独立页面登录" : "弹窗登录"}`}
                         </p>
                     </div>
                 </div>
@@ -389,7 +391,7 @@ export default function AccessSettingsPanel() {
                                 <strong>允许创建新账号</strong>
                                 <AdminStatusBadge label="切换即保存" tone="info" />
                             </div>
-                            <p>关闭后，本地注册和未绑定账号的 Linux.do 首次登录都会被拒绝；已有账号及已绑定身份仍可继续登录。</p>
+                            <p>关闭后，本地注册和未绑定账号的 {OAUTH_PROVIDER_NAME} 首次登录都会被拒绝；已有账号及已绑定身份仍可继续登录。</p>
                             <span>{formatSettingTime(registration.updatedAt, "当前来自部署环境默认值")}</span>
                         </div>
                         <Switch checked={registration.enabled} loading={savingRegistration} disabled={loading || refreshing || savingLinuxDO} onChange={requestRegistrationChange} aria-label="允许创建新账号，切换后立即生效" />
@@ -439,8 +441,8 @@ export default function AccessSettingsPanel() {
                 <SettingsSectionCard
                     className="admin-access-section admin-access-linuxdo-section"
                     icon={<KeyRound className="size-4" aria-hidden="true" />}
-                    title="2. 是否开放 Linux.do 登录"
-                    description="先决定是否在登录与注册页展示 Linux.do。开启后再填写 OAuth 接入信息。"
+                    title="2. 是否开放 OAuth 登录（当前对接 hajimi）"
+                    description={`先决定是否在登录与注册页展示 ${OAUTH_PROVIDER_NAME} 登录入口。开启后再填写 OAuth 接入信息。`}
                     status={<AdminStatusBadge label={draftLinuxDOEnabled ? (dirty ? "待启用" : "运行中") : dirty && linuxdo.enabled ? "待停用" : "未启用"} tone={dirty ? "warning" : draftLinuxDOEnabled ? "success" : "neutral"} />}
                     footer={
                         <>
@@ -479,21 +481,21 @@ export default function AccessSettingsPanel() {
                             </span>
                             <div className="admin-access-policy-copy">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <strong>在登录与注册页显示 Linux.do</strong>
+                                    <strong>在登录与注册页显示 {OAUTH_PROVIDER_NAME} 登录</strong>
                                     <AdminStatusBadge label="保存后生效" tone="info" />
                                 </div>
                                 <p>开启后显示第三方登录入口；首次登录是否能创建账号仍受上方注册开关控制。</p>
                                 {!draftLinuxDOEnabled ? <span>当前关闭，因此 OAuth 凭据和端点配置已收起。</span> : null}
                             </div>
                             <Form.Item noStyle name="enabled" valuePropName="checked">
-                                <Switch aria-label="在登录与注册页显示 Linux.do" onChange={toggleLinuxDO} />
+                                <Switch aria-label={`在登录与注册页显示 ${OAUTH_PROVIDER_NAME} 登录`} onChange={toggleLinuxDO} />
                             </Form.Item>
                         </div>
 
                         {draftLinuxDOEnabled ? (
                             <>
                                 <div className="admin-access-form-section">
-                                    <FormSectionTitle icon={<KeyRound className="size-4" />} title="应用凭据" description="填写 Linux.do OAuth 应用的客户端信息；密钥只保存在服务端。" />
+                                    <FormSectionTitle icon={<KeyRound className="size-4" />} title="应用凭据" description={`填写 OAuth 应用（当前对接 ${OAUTH_PROVIDER_NAME}）的客户端信息；密钥只保存在服务端。`} />
                                     <div className="admin-access-form-grid is-credentials">
                                         <Form.Item name="clientAuthMethod" label="Token 请求鉴权方式" rules={[{ required: true, message: "请选择鉴权方式" }]} extra="应用未特别要求时使用 Client Secret Post。">
                                             <Select
@@ -504,30 +506,34 @@ export default function AccessSettingsPanel() {
                                             />
                                         </Form.Item>
                                         <Form.Item name="clientId" label="Client ID">
-                                            <Input autoComplete="off" placeholder="Linux.do OAuth 应用的 Client ID" />
+                                            <Input autoComplete="off" placeholder="OAuth 应用的 Client ID" />
                                         </Form.Item>
                                         <Form.Item name="clientSecret" label={linuxdo.hasClientSecret ? `Client Secret（${configuredSecretText}）` : "Client Secret"}>
-                                            <Input.Password autoComplete="new-password" placeholder={linuxdo.hasClientSecret ? "留空保留原密钥" : "Linux.do OAuth 应用的 Client Secret"} />
+                                            <Input.Password autoComplete="new-password" placeholder={linuxdo.hasClientSecret ? "留空保留原密钥" : "OAuth 应用的 Client Secret"} />
                                         </Form.Item>
                                     </div>
                                 </div>
 
                                 <div className="admin-access-form-section">
-                                    <FormSectionTitle icon={<Globe2 className="size-4" />} title="OAuth 连接地址" description="授权、Token 和用户资料端点必须使用 HTTPS；本地回环回调可使用 HTTP。" />
+                                    <FormSectionTitle
+                                        icon={<Globe2 className="size-4" />}
+                                        title="OAuth 连接地址"
+                                        description="授权地址必须使用 HTTPS（仅本机回环可用 HTTP）；Token 和用户资料地址由后端直连，HTTP 仅限回环地址或后端已放行的内网主机；本地回环回调可使用 HTTP。"
+                                    />
                                     <div className="admin-access-form-grid">
                                         <Form.Item name="authorizationUrl" label="授权地址">
-                                            <Input inputMode="url" placeholder="https://connect.linux.do/oauth2/authorize" />
+                                            <Input inputMode="url" placeholder="https://hajimi.chat/yingce/authorize" />
                                         </Form.Item>
                                         <Form.Item name="tokenUrl" label="Token 地址">
-                                            <Input inputMode="url" placeholder="https://connect.linux.do/oauth2/token" />
+                                            <Input inputMode="url" placeholder="https://hajimi.chat/api/v1/yingce/oauth/token" />
                                         </Form.Item>
                                         <Form.Item name="userInfoUrl" label="用户资料地址">
-                                            <Input inputMode="url" placeholder="https://connect.linux.do/api/user" />
+                                            <Input inputMode="url" placeholder="https://hajimi.chat/api/v1/yingce/oauth/userinfo" />
                                         </Form.Item>
-                                        <Form.Item name="redirectUrl" label="本站回调地址" extra="必须与 Linux.do OAuth 应用登记值完全一致；推荐使用 /oauth/linuxdo/callback。">
+                                        <Form.Item name="redirectUrl" label="本站回调地址" extra="必须与 OAuth 服务登记的回调地址完全一致；推荐使用 /oauth/linuxdo/callback。">
                                             <Input inputMode="url" placeholder="https://你的域名/oauth/linuxdo/callback" />
                                         </Form.Item>
-                                        <Form.Item name="scopes" label="授权范围（Scopes）" className="admin-access-form-span-full" extra="通常使用 openid、profile、email；按 Linux.do 应用实际授权范围填写。">
+                                        <Form.Item name="scopes" label="授权范围（Scopes）" className="admin-access-form-span-full" extra={`对接 ${OAUTH_PROVIDER_NAME} 时填写 profile；其他 OAuth 服务按实际授权范围填写。`}>
                                             <Select mode="tags" tokenSeparators={[",", " "]} placeholder="输入后按回车添加" />
                                         </Form.Item>
                                     </div>
@@ -540,7 +546,7 @@ export default function AccessSettingsPanel() {
                                         </span>
                                         <span>
                                             <strong>高级：用户资料字段映射</strong>
-                                            <small>指定从 Linux.do 响应中读取本地账号信息的字段路径。</small>
+                                            <small>指定从 OAuth 用户资料响应中读取本地账号信息的字段路径。</small>
                                         </span>
                                         <AdminStatusBadge label="通常无需修改" tone="neutral" />
                                         <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
@@ -766,9 +772,10 @@ function hasLinuxDOChanges(values: LinuxDOFormValues, setting: LinuxDOSetting | 
 function validateLinuxDODraft(values: LinuxDOFormValues, setting: LinuxDOSetting | null) {
     const draft = normalizeLinuxDOFormValues(values);
     if (!draft.enabled) return "";
-    if (!draft.clientId || (!draft.clientSecret && !setting?.hasClientSecret) || !draft.authorizationUrl || !draft.tokenUrl || !draft.userInfoUrl || !draft.redirectUrl) return "启用 Linux.do 登录前请完整填写 Client、端点和回调配置";
-    for (const value of [draft.authorizationUrl, draft.tokenUrl, draft.userInfoUrl]) if (!isValidURL(value, true)) return "Linux.do 授权、Token 和用户资料地址必须是有效的 HTTPS URL";
-    if (!isValidRedirectURL(draft.redirectUrl)) return "Linux.do 回调地址必须使用 HTTPS，本地回环地址可使用 HTTP";
+    if (!draft.clientId || (!draft.clientSecret && !setting?.hasClientSecret) || !draft.authorizationUrl || !draft.tokenUrl || !draft.userInfoUrl || !draft.redirectUrl) return "启用 OAuth 登录前请完整填写 Client、端点和回调配置";
+    const endpointError = oauthEndpointURLError(draft);
+    if (endpointError) return endpointError;
+    if (!isValidRedirectURL(draft.redirectUrl)) return "OAuth 回调地址必须使用 HTTPS，本地回环地址可使用 HTTP";
     return "";
 }
 
@@ -777,15 +784,6 @@ function linuxDOResponseMatches(setting: LinuxDOSetting, expected: LinuxDOFormVa
     const fields: Array<keyof LinuxDOFormValues> = ["enabled", "clientId", "authorizationUrl", "tokenUrl", "userInfoUrl", "redirectUrl", "scopes", "clientAuthMethod", "subjectField", "usernameField", "displayNameField", "emailField", "avatarField"];
     if (expected.clientSecret && !setting.hasClientSecret) return false;
     return fields.every((key) => JSON.stringify(actual[key]) === JSON.stringify(expected[key]));
-}
-
-function isValidURL(value: string, requireHTTPS = false) {
-    try {
-        const parsed = new URL(value);
-        return Boolean(parsed.host) && (!requireHTTPS || parsed.protocol === "https:");
-    } catch {
-        return false;
-    }
 }
 
 function isValidRedirectURL(value: string) {

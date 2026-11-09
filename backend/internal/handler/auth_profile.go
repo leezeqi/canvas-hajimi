@@ -160,6 +160,7 @@ func registerAuthProfileRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
+		setOAuthStateCookie(c, target)
 		c.Redirect(http.StatusFound, target)
 	})
 }

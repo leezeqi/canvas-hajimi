@@ -610,7 +610,7 @@ func (s *Service) ReserveProxyBillingWithBody(userID string, channelID string, m
 	}
 	if err := s.repo.ReserveBillingOrder(order); err != nil {
 		if errors.Is(err, repository.ErrInsufficientCredits) {
-			return nil, BadAuthRequest("积分不足，请先使用兑换码充值")
+			return nil, InsufficientCredits("积分不足，请先使用兑换码充值")
 		}
 		return nil, err
 	}

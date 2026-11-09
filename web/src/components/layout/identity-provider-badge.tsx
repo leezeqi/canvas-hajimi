@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import { OAUTH_PROVIDER_NAME } from "@/lib/oauth-brand";
 import { cn } from "@/lib/utils";
 
 type IdentityUser = { identityProvider?: string; identityUsername?: string };
@@ -18,9 +19,9 @@ export function IdentityProviderBadge({ user, compact = false, className }: { us
                 compact ? "size-3.5 rounded-full text-[var(--fs-micro)] leading-none" : "h-4 rounded px-1 text-[var(--fs-micro)] leading-none",
                 className,
             )}
-            title={user.identityUsername ? `Linux.do · @${user.identityUsername}` : t("account.layout.identity.linuxdoUser")}
+            title={user.identityUsername ? `${OAUTH_PROVIDER_NAME} · @${user.identityUsername}` : t("account.layout.identity.linuxdoUser")}
         >
-            {compact ? "L" : "Linux.do"}
+            {compact ? OAUTH_PROVIDER_NAME.slice(0, 1) : OAUTH_PROVIDER_NAME}
         </span>
     );
 }

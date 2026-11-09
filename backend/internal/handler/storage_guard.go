@@ -15,6 +15,7 @@ var storageReadOnlyExemptPrefixes = []string{
 	"/auth/",
 	"/payments/",
 	"/wallet/",
+	"/hajimi-bridge/",
 	"/admin/",
 	"/settings/",
 	"/diagnostics/",

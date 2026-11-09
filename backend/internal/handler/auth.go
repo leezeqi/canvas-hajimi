@@ -154,6 +154,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
+		setOAuthStateCookie(c, target)
 		c.Redirect(http.StatusFound, target)
 	})
 	r.GET("/auth/linuxdo/callback", rejectedLoginAudit(svc, "linuxdo"), linuxDOCallbackHandler(svc))
@@ -224,6 +225,7 @@ func RegisterOAuthCallbackRoutes(r gin.IRoutes, svc *service.Service) {
 
 func linuxDOCallbackHandler(svc *service.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		stateBound := consumeOAuthStateCookie(c, c.Query("state"))
 		if !enforceRateLimit(c, "linuxdo-callback:"+c.ClientIP(), 30, 10*time.Minute) {
 			return
 		}
@@ -233,6 +235,13 @@ func linuxDOCallbackHandler(svc *service.Service) gin.HandlerFunc {
 				log.Printf("OAuth rejected login audit write failed: error=%v", err)
 			}
 			c.Redirect(http.StatusFound, "/login?oauth_error="+url.QueryEscape("无法读取身份验证状态，请重试"))
+			return
+		}
+		if redirectOAuthProviderError(c, svc, reauthentication) {
+			return
+		}
+		if !stateBound {
+			rejectOAuthStateMismatch(c, svc, reauthentication)
 			return
 		}
 		c.Set("login_audit_handled", true)

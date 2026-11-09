@@ -8,7 +8,8 @@ import { clearReferralCode, readReferralCode, type AuthView } from "@/lib/auth-e
 import { getAuthSession, linuxDOLoginURL, login, register, type AuthSettings } from "@/services/api/auth";
 import { ApiError } from "@/services/api/request";
 import { emptyVerification, loginVerification, registrationVerificationRequired, verificationMethods, type VerificationMethod } from "@/services/api/verification";
-import { AuthAgreementDialog, AuthNotice, AuthTabs, LinuxDOIcon, authTabId, authTabPanelId, useAuthAgreement } from "./auth-form-parts";
+import { AuthAgreementDialog, AuthNotice, AuthTabs, authTabId, authTabPanelId, useAuthAgreement } from "./auth-form-parts";
+import { OAuthAccountExplanation, OAuthProviderIcon } from "./fork-oauth-entry";
 
 type LoginMethod = "password" | VerificationMethod;
 
@@ -286,9 +287,10 @@ export function AuthLoginForm({ settings, settingsFailed, onReloadSettings, next
                         {t("common.or")}
                     </Divider>
                     {/* 新 Linux.do 账号同样需要同意协议：勾选后才携带同意标志，否则只能登录已绑定账号。 */}
-                    <Button size="large" block icon={<LinuxDOIcon />} href={linuxDOLoginURL(next, agreementAccepted || undefined)}>
+                    <Button size="large" block icon={<OAuthProviderIcon />} href={linuxDOLoginURL(next, agreementAccepted || undefined)}>
                         {t("auth.login.linuxdo")}
                     </Button>
+                    <OAuthAccountExplanation />
                 </>
             ) : null}
             {settings && !canRegister ? (

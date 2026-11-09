@@ -5,6 +5,14 @@ description: 从产品功能快速定位主要代码入口
 
 # 代码功能地图
 
+## hajimi 余额互通（二改）
+
+- 域服务：`backend/internal/hajimibridge/`（HMAC 签名客户端与熔断、划转状态机、钱包、补账 / 对账 / 状态同步 / 自动转入 worker、毛利报表）；组合根 `app/fork_hajimi_bridge.go`，别名 `service/aliases_fork_hajimi_bridge.go`，路由 `handler/fork_hajimi_bridge.go`（`handler/api.go` 一行注册，`app/service.go` 一行启动 worker）。
+- 登录：OAuth state cookie 在 `handler/fork_hajimi_oauth_state.go`（`handler/auth.go` 调用）；hajimi 地址校验放宽在 `auth/fork_hajimi_oauth_urls.go`；积分不足原因 `kernel/fork_hajimi_reasons.go`。
+- 数据：`model/models_fork_hajimi_bridge.go`、`repository/fork_hajimi_bridge.go`、`repository/fork_hajimi_margin.go`；建表 `database/fork_hajimi_schema.go`（由 `fork_schema.go` 调用，`schema.go` 的 `Models()` 和 `cmd/migrate-sqlite-postgres` 已登记）。
+- 前端：`web/src/lib/hajimi-bridge.ts`、`hajimi-margin.ts`、`oauth-brand.ts`、`oauth-endpoint-url.ts`，`services/api/hajimi-bridge.ts`，`hooks/use-hajimi-bridge.ts`，钱包页签 `components/layout/hajimi-bridge-wallet-panel.tsx`、积分不足提示 `hajimi-bridge-credits-notice.tsx`，后台页 `pages/admin/hajimi-bridge/`，登录按钮图标与说明 `components/auth/fork-oauth-entry.tsx`，多语言 `i18n/fork-overrides.ts`。
+- 回归：`hajimibridge/*_test.go`、`database/fork_hajimi_schema_test.go`、`handler/fork_hajimi_*_test.go`，前端 `web/test/hajimi-*.test.ts*`、`oauth-brand-auth.test.tsx`。
+
 ## 电商 Agent 与后台知识库
 
 - 页面：`web/src/pages/ecommerce/`；后台：`web/src/pages/admin/ecommerce-agent-config-page.tsx`（上线检查、阶段模型 `ecommerce-stage-models.tsx` 与目录换算 `ecommerce-model-catalog.ts`）；`ecommerce-management-page.tsx`（知识与技能标签页：`ecommerce-knowledge-page.tsx`、`ecommerce-skills-page.tsx`、`ecommerce-categories-page.tsx`，内容头 `ecommerce-library-panel.tsx`）；`knowledge-domain-coverage.ts`。

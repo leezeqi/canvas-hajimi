@@ -13,6 +13,7 @@ import { FullScreenLoader } from "@/components/ui/aceternity/full-screen-loader"
 import { useAuthLoginMode } from "@/hooks/use-auth-entry";
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { authDialogLanding, authViewFromPath, rememberReferralCode, safeAuthNext } from "@/lib/auth-entry";
+import { brandOAuthMessage } from "@/lib/oauth-brand";
 import { useAuthDialogStore } from "@/stores/use-auth-dialog-store";
 import { brandStudioLabel, useAppearanceStore } from "@/stores/use-appearance-store";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -42,7 +43,7 @@ function AuthDialogRedirect() {
         handled.current = true;
         rememberReferralCode(params.get("ref"));
         const oauthError = params.get("oauth_error");
-        if (oauthError) message.error(oauthError);
+        if (oauthError) message.error(brandOAuthMessage(oauthError));
         useAuthDialogStore.getState().openDialog(authViewFromPath(location.pathname) ?? "login", next);
     }, [location.pathname, message, next, params, signedIn]);
 

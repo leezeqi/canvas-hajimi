@@ -3,6 +3,7 @@ import type { MenuProps } from "antd";
 import {
     Activity,
     ArrowLeft,
+    ArrowLeftRight,
     BarChart3,
     BellRing,
     BookMarked,
@@ -100,6 +101,7 @@ const adminNavigation: AdminNavigationGroup[] = [
             { path: "/admin/payments", label: "支付充值", shortLabel: "支付", icon: <CreditCard className="size-4" /> },
             { path: "/admin/redemption-codes", label: "兑换码", shortLabel: "兑换", icon: <TicketCheck className="size-4" /> },
             { path: "/admin/referral", label: "推广中心", shortLabel: "推广", icon: <Gift className="size-4" /> },
+            { path: "/admin/hajimi-bridge", label: "hajimi 互通", shortLabel: "互通", icon: <ArrowLeftRight className="size-4" /> },
             { path: "/admin/announcements", label: "系统公告", shortLabel: "公告", icon: <BellRing className="size-4" /> },
             { path: "/admin/banner-announcements", label: "常驻通知", shortLabel: "通知", icon: <Megaphone className="size-4" /> },
             { path: "/admin/feedbacks", label: "用户反馈", shortLabel: "反馈", icon: <Inbox className="size-4" /> },

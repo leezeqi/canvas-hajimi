@@ -1,10 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Input, Skeleton } from "antd";
-import { ChevronLeft, ChevronRight, CircleAlert, Coins, CreditCard, HardDrive, History, RefreshCw, TicketCheck, WalletCards } from "lucide-react";
+import { ArrowLeftRight, ChevronLeft, ChevronRight, CircleAlert, Coins, CreditCard, HardDrive, History, RefreshCw, TicketCheck, WalletCards } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 
+import { HajimiBridgeWalletPanel } from "@/components/layout/hajimi-bridge-wallet-panel";
+import { useHajimiBridgeWallet } from "@/hooks/use-hajimi-bridge";
+import { hajimiLedgerTitle } from "@/lib/hajimi-bridge";
+import { OAUTH_PROVIDER_NAME } from "@/lib/oauth-brand";
 import { WalletTopupPanel, type TopupCategory } from "@/components/layout/workspace-wallet-topup";
 import { usePaymentOrderFlow } from "@/components/payment/use-payment-order-flow";
 import { AppModal } from "@/components/ui/product/app-modal";
@@ -22,7 +26,7 @@ import { openWorkspaceWallet, WORKSPACE_WALLET_OPEN_EVENT, type WorkspaceWalletO
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { useUserStore } from "@/stores/use-user-store";
 
-type WalletModalTab = "topup" | "redeem" | "history";
+type WalletModalTab = "topup" | "redeem" | "history" | "hajimi";
 
 const storageGrantsQueryKey = ["account-storage-grants"] as const;
 
@@ -119,7 +123,10 @@ export function WorkspaceWalletModal({
 
     const selectedProduct = useMemo(() => products.find((item) => item.id === selectedProductId), [products, selectedProductId]);
     const selectedOption = useMemo(() => paymentOptions.find((item) => item.key === selectedOptionKey), [paymentOptions, selectedOptionKey]);
-    const activeTab: WalletModalTab = creditsEnabled ? tab : "topup";
+    // hajimi 余额页签只在互通开启时出现（fork：hajimi 余额互通）。
+    const hajimiBridge = useHajimiBridgeWallet(open && creditsEnabled);
+    const hajimiTabVisible = Boolean(hajimiBridge.data?.enabled);
+    const activeTab: WalletModalTab = creditsEnabled && (tab !== "hajimi" || hajimiTabVisible) ? tab : "topup";
 
     const reloadWallet = async (targetPage = page) => {
         if (!creditsEnabled) return;
@@ -301,10 +308,18 @@ export function WorkspaceWalletModal({
                                 <History />
                                 {t("account.wallet.tabHistory")}
                             </button>
+                            {hajimiTabVisible ? (
+                                <button type="button" role="tab" aria-selected={activeTab === "hajimi"} onClick={() => setTab("hajimi")}>
+                                    <ArrowLeftRight />
+                                    {t("forkHajimi.walletTab", { provider: OAUTH_PROVIDER_NAME })}
+                                </button>
+                            ) : null}
                         </div>
                     ) : null}
 
-                    {activeTab === "topup" ? (
+                    {activeTab === "hajimi" ? (
+                        <HajimiBridgeWalletPanel availableMicro={wallet ? available : null} onCreditsChanged={announceWalletUpdated} />
+                    ) : activeTab === "topup" ? (
                         <WalletTopupPanel
                             loading={paymentsLoading}
                             products={products}
@@ -447,7 +462,7 @@ function WalletLedgerRow({ entry }: { entry: CreditLedgerEntry }) {
         <article className="workspace-wallet-ledger-row">
             <span className={cn("workspace-wallet-ledger-icon", positive ? "is-income" : "is-consume")}>{positive ? <Coins /> : <CreditCard />}</span>
             <div>
-                <strong>{title}</strong>
+                <strong>{hajimiLedgerTitle(entry.type) || title}</strong>
                 <span>{(arkGroup ? [note] : [entry.scene, entry.model, note]).filter(Boolean).join(" · ") || t("account.wallet.ledger.change")}</span>
             </div>
             <time>{new Date(entry.createdAt).toLocaleString(currentLocale(), { hour12: false })}</time>

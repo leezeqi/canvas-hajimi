@@ -12,6 +12,7 @@ import { WorkspaceStorageLimitNotice } from "@/components/layout/workspace-stora
 import { WorkspaceWalletHost } from "@/components/layout/workspace-wallet-modal";
 import { GenerationSuccessNotifier } from "@/components/layout/generation-success-notifier";
 import { useWorkspaceDocumentTitle } from "@/hooks/use-workspace-document-title";
+import { HajimiBridgeCreditsNotice } from "@/components/layout/hajimi-bridge-credits-notice";
 import { cn } from "@/lib/utils";
 import { isSpatialWorkbenchPath } from "@/lib/workspace-routes";
 
@@ -121,6 +122,7 @@ export function AppWorkspaceShell({ children }: { children: ReactNode }) {
             <WorkspaceWalletHost />
             <WorkspaceStorageLimitNotice />
             <GenerationSuccessNotifier />
+            <HajimiBridgeCreditsNotice />
             <ModelSetupGuide hidden={pathname === "/login" || pathname === "/register" || pathname.startsWith("/admin")} />
         </>
     );

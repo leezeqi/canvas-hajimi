@@ -87,5 +87,9 @@ func applyForkSchema(tx *gorm.DB) error {
 			return fmt.Errorf("迁移仅管理员可见插件：%w", err)
 		}
 	}
+	// hajimi 余额互通的四张表（hajimi_bridge_*），见 fork_hajimi_schema.go。
+	if err := applyForkHajimiBridgeSchema(tx); err != nil {
+		return err
+	}
 	return nil
 }
