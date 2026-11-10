@@ -566,6 +566,11 @@ export function listAdminUserTasks(id: string, params: { page?: number; pageSize
     return http.get<{ tasks: AdminUserTask[]; total: number; page: number; pageSize: number }>(`/admin/users/${encodeURIComponent(id)}/tasks`, { params });
 }
 
+/** 管理员取消用户仍在排队或运行的任务；上游已提交的任务也可取消，费用走退款或待核对。 */
+export function cancelAdminUserTask(userId: string, taskId: string) {
+    return http.post<{ task: AdminUserTask }>(`/admin/users/${encodeURIComponent(userId)}/tasks/${encodeURIComponent(taskId)}/cancel`);
+}
+
 export function listAdminUserAuditEvents(id: string, params: { page?: number; pageSize?: number } = {}) {
     return http.get<{ events: AdminAuditEvent[]; total: number; page: number; pageSize: number }>(`/admin/users/${encodeURIComponent(id)}/audit-events`, { params });
 }

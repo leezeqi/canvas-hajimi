@@ -96,6 +96,12 @@ UUToken 视频使用独立 `uutoken-video` 插件：`POST /v1/videos` 以 JSON �
 
 `DELETE /api/tasks/:id` 无请求体，成功返回 `data={id}`。只能删除当前用户自己的成功、失败或已取消任务；任务不存在或属于他人时返回 404，排队或生成中时返回 400（需先取消），重复删除幂等成功。删除后任务不再出现在 `GET /api/tasks`、`GET /api/workbench/tasks` 和项目任务列表中，`POST /api/tasks/:id/retry` 返回 404。任务行、计费订单和已生成文件仍保留，不退积分，也不释放存储空间。工作台按批次删除时，页面对组内每个任务调用一次该接口。存储只读期间仍允许删除。
 
+## 管理员取消用户任务
+
+`POST /api/admin/users/:id/tasks/:taskId/cancel` 无请求体，仅管理员可用，成功返回 `data={task}`。`:taskId` 必须属于 `:id` 指定的用户，否则返回 404；只有排队中或运行中的任务可以取消，已结束的任务返回 400，对已取消任务重复调用幂等返回当前任务。
+
+用户自己的 `POST /api/tasks/:id/cancel` 在任务进入上游提交 / 生成阶段后返回“第三方请求已提交，任务不可取消”；管理员接口不受这条限制，用于终止长时间卡住的任务。任务立即变为 `cancelled`，`cancellationSource` 为 `admin_request`，`cancellationActorId` 为管理员 ID。费用处理沿用现有取消流程：尚未开始执行的排队任务退款；已有上游任务 ID 的向上游发送取消并由后台对账决定退款或待核对；运行中但没有上游任务 ID、或上游协议不支持取消的，账单标记为待核对，不自动退款。上游是否真的停止生成取决于供应商是否支持取消。每次实际取消写一条管理员审计（`user.task.cancel`，目标为该用户）。
+
 ## 图片响应格式
 
 渠道模型的 `capabilityConfig.image.responseFormat` 包含 `supported` 和可选的 `default`。默认值为 `auto`，表示请求中不发送 `response_format`，由上游决定返回 URL 或 Base64；`b64_json` 和 `url` 会分别强制发送对应值。该配置按模型保存，不根据 `openai-image` 协议名称自动推断，避免兼容网关不接受 Base64 时生成失败。需要持久化 Base64 结果的模型（例如已验证的 ddcat 图片模型）应将默认值设为 `b64_json`。

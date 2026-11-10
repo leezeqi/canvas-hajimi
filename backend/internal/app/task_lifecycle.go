@@ -119,7 +119,7 @@ func (w *taskLifecycleCoordinator) cancelTask(ctx context.Context, userID string
 func (w *taskLifecycleCoordinator) cancelTaskWithIntent(_ context.Context, userID string, id string, intent model.TaskCancellationIntent) (*model.Task, error) {
 	s := w.service
 	switch intent.Source {
-	case model.TaskCancellationUserRequest, model.TaskCancellationParentCancelled, model.TaskCancellationParentFailed, model.TaskCancellationWorkerContext:
+	case model.TaskCancellationUserRequest, model.TaskCancellationAdminRequest, model.TaskCancellationParentCancelled, model.TaskCancellationParentFailed, model.TaskCancellationWorkerContext:
 	default:
 		return nil, BadAuthRequest("取消请求缺少有效来源")
 	}
@@ -140,6 +140,7 @@ func (w *taskLifecycleCoordinator) cancelTaskWithIntent(_ context.Context, userI
 	// 用户一旦看到任务进入上游提交/生成阶段，即使 request ID 尚未来得及写回，
 	// 也必须按“可能已经产生上游费用”处理。父任务失败和 worker context 属于
 	// 内部协调，仍需继续走下面的上游取消/对账流程，不能被这条 UI 规则截断。
+	// 管理员取消用于终止卡住的任务，同样走上游取消/费用核对，不受此限制。
 	if intent.Source == model.TaskCancellationUserRequest && taskUpstreamSubmitted(task) {
 		return nil, BadAuthRequest("第三方请求已提交，任务不可取消")
 	}

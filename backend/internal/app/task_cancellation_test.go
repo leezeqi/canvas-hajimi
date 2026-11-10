@@ -181,3 +181,72 @@ func TestCancelTaskRejectsTaskWithProviderRequestID(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminCancelUserTaskStopsSubmittedTaskAndAudits(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Task{}, &model.User{}, &model.AdminAuditEvent{}); err != nil {
+		t.Fatal(err)
+	}
+	admin := model.User{ID: "admin-1", Username: "admin", Role: "admin", Status: "active"}
+	owner := model.User{ID: "user-1", Username: "owner", Role: "user", Status: "active"}
+	if err := db.Create(&admin).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&owner).Error; err != nil {
+		t.Fatal(err)
+	}
+	// 没有上游 request ID 但已进入上游阶段：用户自助取消会被拒绝。
+	task := model.Task{ID: "stuck-task", UserID: owner.ID, Status: model.TaskStatusRunning, Stage: "上游生成中"}
+	if err := db.Create(&task).Error; err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{repo: repository.New(db)}
+
+	if _, err := svc.CancelTask(context.Background(), owner.ID, task.ID); err == nil {
+		t.Fatal("user cancel should be rejected after upstream submission")
+	}
+	if _, err := svc.AdminCancelUserTask(context.Background(), &owner, owner.ID, task.ID); err == nil {
+		t.Fatal("non-admin must not use admin cancel")
+	}
+	if _, err := svc.AdminCancelUserTask(context.Background(), &admin, admin.ID, task.ID); err == nil {
+		t.Fatal("task must be resolved under its owner")
+	}
+
+	cancelled, err := svc.AdminCancelUserTask(context.Background(), &admin, owner.ID, task.ID)
+	if err != nil {
+		t.Fatalf("AdminCancelUserTask() error = %v", err)
+	}
+	if cancelled.Status != model.TaskStatusCancelled || cancelled.CancellationSource != model.TaskCancellationAdminRequest || cancelled.CancellationActorID != admin.ID {
+		t.Fatalf("admin cancel = status %s source %s actor %s", cancelled.Status, cancelled.CancellationSource, cancelled.CancellationActorID)
+	}
+	stored, err := svc.repo.TaskForUser(owner.ID, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != model.TaskStatusCancelled || stored.CancellationSource != model.TaskCancellationAdminRequest {
+		t.Fatalf("stored task = status %s source %s", stored.Status, stored.CancellationSource)
+	}
+
+	// 重复取消幂等，且不重复写审计。
+	if _, err := svc.AdminCancelUserTask(context.Background(), &admin, owner.ID, task.ID); err != nil {
+		t.Fatalf("repeat admin cancel error = %v", err)
+	}
+	var audits []model.AdminAuditEvent
+	if err := db.Where("action = ?", "user.task.cancel").Find(&audits).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(audits) != 1 || audits[0].ActorUserID != admin.ID || audits[0].TargetID != owner.ID {
+		t.Fatalf("audit events = %+v", audits)
+	}
+
+	done := model.Task{ID: "done-task", UserID: owner.ID, Status: model.TaskStatusSucceeded}
+	if err := db.Create(&done).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AdminCancelUserTask(context.Background(), &admin, owner.ID, done.ID); err == nil {
+		t.Fatal("finished task must not be cancellable")
+	}
+}

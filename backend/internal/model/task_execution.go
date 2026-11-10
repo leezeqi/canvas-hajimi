@@ -4,6 +4,7 @@ import "time"
 
 const (
 	TaskCancellationUserRequest     = "user_request"
+	TaskCancellationAdminRequest    = "admin_request"
 	TaskCancellationParentCancelled = "parent_cancelled"
 	TaskCancellationParentFailed    = "parent_failed"
 	TaskCancellationWorkerContext   = "worker_context"

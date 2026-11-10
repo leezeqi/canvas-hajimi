@@ -131,6 +131,19 @@ func registerAdminUserRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		ok(c, result)
 	})
+	r.POST("/admin/users/:id/tasks/:taskId/cancel", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		task, err := svc.AdminCancelUserTask(c.Request.Context(), user, c.Param("id"), c.Param("taskId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"task": task})
+	})
 	r.GET("/admin/users/:id/audit-events", func(c *gin.Context) {
 		user, err := currentUser(c, svc)
 		if err != nil {

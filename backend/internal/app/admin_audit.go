@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -138,6 +139,41 @@ func (s *Service) AdminUserTasks(actor *model.User, userID string, page int, lim
 	page, limit = normalizeAdminPage(page, limit)
 	tasks, total, err := s.repo.AdminUserTasks(userID, limit, (page-1)*limit)
 	return &AdminTaskPage{Tasks: tasks, Total: total, Page: page, Limit: limit}, err
+}
+
+// AdminCancelUserTask 让管理员终止指定用户仍在排队或运行的任务。
+// 与用户自助取消不同，上游已提交的任务也能取消：任务立即进入 cancelled，
+// 随后由上游取消与对账流程决定退款或标记费用待核对。
+func (s *Service) AdminCancelUserTask(ctx context.Context, actor *model.User, userID string, taskID string) (*model.Task, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return nil, err
+	}
+	userID, taskID = strings.TrimSpace(userID), strings.TrimSpace(taskID)
+	if _, err := s.repo.User(userID); err != nil {
+		return nil, err
+	}
+	existing, err := s.repo.TaskForUser(userID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if existing.Status == model.TaskStatusCancelled {
+		return taskForOutput(*existing), nil
+	}
+	if existing.Status != model.TaskStatusQueued && existing.Status != model.TaskStatusRunning {
+		return nil, BadAuthRequest("只有排队中或运行中的任务可以取消")
+	}
+	task, err := s.taskLifecycle().cancelTaskWithIntent(ctx, userID, taskID, model.TaskCancellationIntent{Source: model.TaskCancellationAdminRequest, ActorID: actor.ID})
+	if err != nil {
+		return nil, err
+	}
+	// 任务已落库为 cancelled；审计写入失败只留任务日志，不能把结果表现成取消失败。
+	if err := s.appendAdminAudit(actor, "user.task.cancel", "user", userID, "取消用户任务："+task.ID, map[string]any{
+		"taskId": task.ID, "type": task.Type, "model": task.Model, "previousStatus": existing.Status, "previousStage": existing.Stage,
+		"upstreamSubmitted": taskUpstreamSubmitted(existing),
+	}); err != nil {
+		_ = s.log(userID, task.ID, "error", "管理员取消任务后写入审计失败", err.Error())
+	}
+	return task, nil
 }
 
 func (s *Service) AdminUserAuditEvents(actor *model.User, userID string, page int, limit int) (*AdminAuditPage, error) {

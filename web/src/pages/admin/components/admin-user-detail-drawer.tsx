@@ -7,11 +7,13 @@ import { formatCredits } from "@/constant/credits";
 import { IconButton } from "@/pages/admin/ui/controls";
 import { AdminDataTable, AdminEmpty, AdminStatusBadge, AdminTableEmpty, PaginationBar, type AdminStatusTone } from "./admin-ui";
 import { AdminUserStoragePanel } from "./admin-user-storage-panel";
-import { getAdminUserDetail, listAdminUserAuditEvents, listAdminUserLedger, listAdminUserTasks, type AdminAuditEvent, type AdminUserDetail, type AdminUserTask } from "@/services/api/auth";
+import { cancelAdminUserTask, getAdminUserDetail, listAdminUserAuditEvents, listAdminUserLedger, listAdminUserTasks, type AdminAuditEvent, type AdminUserDetail, type AdminUserTask } from "@/services/api/auth";
 import type { CreditLedgerEntry } from "@/services/api/wallet";
 
 export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUserId, onNavigate }: { userId: string | null; onClose: () => void; previousUserId?: string; nextUserId?: string; onNavigate?: (userId: string) => void }) {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
+    const [cancellingTaskId, setCancellingTaskId] = useState("");
+    const [auditVersion, setAuditVersion] = useState(0);
     const [detail, setDetail] = useState<AdminUserDetail | null>(null);
     const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
     const [tasks, setTasks] = useState<AdminUserTask[]>([]);
@@ -87,7 +89,31 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
         return () => {
             active = false;
         };
-    }, [auditPage, message, userId]);
+    }, [auditPage, auditVersion, message, userId]);
+
+    const confirmCancelTask = (task: AdminUserTask) => {
+        if (!userId) return;
+        modal.confirm({
+            title: "取消这个任务？",
+            content: "任务会立即停止并标记为已取消。尚未提交上游的任务自动退款；已提交上游的任务会请求上游取消，费用按上游确认结果退款或进入待核对。",
+            okText: "取消任务",
+            cancelText: "返回",
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                setCancellingTaskId(task.id);
+                try {
+                    const result = await cancelAdminUserTask(userId, task.id);
+                    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, ...result.task } : item)));
+                    setAuditVersion((version) => version + 1);
+                    message.success("任务已取消");
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "取消任务失败");
+                } finally {
+                    setCancellingTaskId("");
+                }
+            },
+        });
+    };
 
     return (
         <AdminDrawer
@@ -199,8 +225,20 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                                         { title: "模型", dataIndex: "model", width: 180, ellipsis: true },
                                         { title: "状态", dataIndex: "status", width: 100, render: (value) => <AdminStatusBadge label={value || "未知"} tone={taskStatusTone(value)} /> },
                                         { title: "阶段", dataIndex: "stage", ellipsis: true },
+                                        {
+                                            title: "操作",
+                                            key: "actions",
+                                            width: 96,
+                                            fixed: "right",
+                                            render: (_, task) =>
+                                                task.status === "queued" || task.status === "running" ? (
+                                                    <Button size="small" danger type="text" loading={cancellingTaskId === task.id} disabled={Boolean(cancellingTaskId)} onClick={() => confirmCancelTask(task)}>
+                                                        取消任务
+                                                    </Button>
+                                                ) : null,
+                                        },
                                         ],
-                                        scroll: { x: 820 },
+                                        scroll: { x: 920 },
                                     }}
                                     empty={<AdminTableEmpty />}
                                     footer={<PaginationBar alwaysShow current={taskPage} pageSize={20} total={taskTotal} onChange={(page) => setTaskPage(page)} pageSizeOptions={[20]} />}
