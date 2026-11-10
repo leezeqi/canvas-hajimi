@@ -167,6 +167,11 @@ export function editableMentionTokenEndingAt(root: HTMLElement, offset: number) 
     return editableLeaves(root).find((leaf) => leaf.token !== undefined && leaf.offset + leaf.token.length === offset)?.token ?? null;
 }
 
+/** offset 正好是某个胶囊的起点时返回该胶囊的令牌。 */
+export function editableMentionTokenStartingAt(root: HTMLElement, offset: number) {
+    return editableLeaves(root).find((leaf) => leaf.token !== undefined && leaf.offset === offset)?.token ?? null;
+}
+
 export function serializeEditableValue(root: HTMLElement) {
     return serializeNodeList(root.childNodes).replace(/\u00a0/g, " ");
 }

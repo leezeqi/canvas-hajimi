@@ -14,6 +14,7 @@ import { MentionMenu, clamp, mentionCaretRect, type MentionMenuKeyboard } from "
 import { MentionHoverPreview, useMentionHoverPreview } from "./canvas-mention-hover-preview";
 import {
     editableMentionTokenEndingAt,
+    editableMentionTokenStartingAt,
     getEditableSelection,
     hasMentionTokenBoundary,
     redrawEditableParts,
@@ -317,10 +318,12 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
         const selection =
             liveSelection ||
             (remembered ? { start: mapCanvasTextOffset(remembered.value, currentValue, remembered.start), end: mapCanvasTextOffset(remembered.value, currentValue, remembered.end) } : { start: currentValue.length, end: currentValue.length });
-        const result = insertPromptReferenceAtSelection(currentValue, selection, text);
+        const result = insertPromptReferenceAtSelection(currentValue, selection, text, { isCompletedMentionAt: (index) => isCompletedMentionAt(currentValue, index) });
         if (!updateValue(result.value, result.selection.start)) return false;
         lastSelectionRef.current = { value: result.value, ...result.selection };
-        syncMention(result.value, result.selection.start);
+        // 插入的是完整引用，不是输到一半的 @，不弹候选菜单。
+        closeMention();
+        setAutoLinkCursor(result.selection.start);
         return true;
     };
 
@@ -334,6 +337,14 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
     });
 
     const closeMention = () => setMention(null);
+
+    // 胶囊是已经完成的引用。胶囊后紧跟文字（@音频1张三）时，这段 “@…” 不是输到一半的引用：
+    // 不弹候选菜单，货架插入也不拿新引用把它连同后面的文字一起替换掉。手打的 @图片1 仍是文字，不受影响。
+    const isCompletedMentionAt = (text: string, index: number) => {
+        const editor = editorRef.current;
+        const token = editor ? editableMentionTokenStartingAt(editor, index) : null;
+        return Boolean(token) && text.startsWith(token!, index);
+    };
 
     // 菜单打开时方向键、Enter/Tab、Esc 先交给菜单，按它当前显示的候选处理；输入法组字期间不拦截。
     // 菜单处理过的按键不再冒泡：弹窗在 window 上监听 Esc，放大编辑里返回上一层或关菜单时不能把弹窗一起关掉。
@@ -350,7 +361,7 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
         setAutoLinkCursor(cursor);
         const prefix = nextValue.slice(0, cursor);
         const match = /@([^\s@,.;:!?，。；：！？、)\]}】）]*)$/.exec(prefix);
-        if (!match || !availableReferences.length) {
+        if (!match || !availableReferences.length || isCompletedMentionAt(nextValue, match.index)) {
             closeMention();
             return;
         }
