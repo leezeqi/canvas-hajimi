@@ -1495,21 +1495,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                     </header>
                     <div className="wb-composer-scroll">
                         <SceneSection kind={kind} tool={tool} quickTools={quickTools} loading={directoryLoading} error={directoryError} onOpenLibrary={() => setLibraryOpen(true)} onChoose={chooseTool} onRetry={() => loadDirectory()} />
-                        <ReferenceSection
-                            kind={kind}
-                            tool={tool}
-                            references={references}
-                            unslottedLimit={unslottedLimit}
-                            onPick={(slotKey) => {
-                                setUploadSlotKey(slotKey);
-                                window.setTimeout(() => fileRef.current?.click(), 0);
-                            }}
-                            onDropFiles={(files, slotKey) => void addFiles(files, slotKey)}
-                            onOpenLibrary={(slotKey) => setAssetPicker({ slotKey })}
-                            onRemove={removeReference}
-                            onRoleChange={(reference, role) => setReferences((current) => withUniqueFrameRole(current, reference.id, role))}
-                            onClear={clearReferences}
-                        />
+                        {/* 描述排在素材前面：常见笔记本高度下不滚动就能看全整段提示词。 */}
                         <PromptSection
                             tool={tool}
                             preset={preset}
@@ -1537,6 +1523,21 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                                     maxLength={promptMaxChars}
                                 />
                             }
+                        />
+                        <ReferenceSection
+                            kind={kind}
+                            tool={tool}
+                            references={references}
+                            unslottedLimit={unslottedLimit}
+                            onPick={(slotKey) => {
+                                setUploadSlotKey(slotKey);
+                                window.setTimeout(() => fileRef.current?.click(), 0);
+                            }}
+                            onDropFiles={(files, slotKey) => void addFiles(files, slotKey)}
+                            onOpenLibrary={(slotKey) => setAssetPicker({ slotKey })}
+                            onRemove={removeReference}
+                            onRoleChange={(reference, role) => setReferences((current) => withUniqueFrameRole(current, reference.id, role))}
+                            onClear={clearReferences}
                         />
                         <ComposerSection title="模型与规格" hint="可选参数随模型变化">
                             {models.length ? (
