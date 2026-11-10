@@ -1,5 +1,5 @@
 import { Button, Dropdown, Progress, Select, Switch } from "antd";
-import { ArrowRight, ArrowUp, Check, ChevronDown, ChevronUp, Clapperboard, FolderOpen, ImagePlus, Images, LayoutGrid, Megaphone, Mic, Palette, PenLine, ScanSearch, ShoppingBag, UserRound, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, ChevronUp, Clapperboard, FolderOpen, ImagePlus, Images, LayoutGrid, Megaphone, Mic, Palette, PenLine, ScanSearch, ShoppingBag, UserRound, X } from "lucide-react";
 import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 
 import { AntTooltip as Tooltip } from "@/components/ui/base/tooltip/ant-tooltip";
@@ -80,23 +80,14 @@ export function SceneSection({
 }) {
     const subtitle = tool ? workbenchToolSubtitle(tool) : kind === "image" ? "不套用场景模板，直接描述想要的商品画面" : "不套用场景模板，直接描述镜头里发生什么";
     return (
-        <ComposerSection
-            title="出品场景"
-            hint={tool ? undefined : "自动套用模板与素材要求"}
-            aside={
-                <Button size="small" type="text" className="wb-text-action" onClick={onOpenLibrary}>
-                    全部场景
-                    <ArrowRight className="size-3.5" />
-                </Button>
-            }
-        >
+        <ComposerSection title="出品场景">
             <button type="button" className="wb-scene-current" onClick={onOpenLibrary} aria-haspopup="dialog" title={tool ? `${tool.name}\n${subtitle}` : "选择出品场景"}>
                 <SceneGlyph tool={tool} kind={kind} size="lg" />
                 <span className="wb-scene-current-copy">
                     <strong>{tool?.name || "自由创作"}</strong>
                     <small>{subtitle}</small>
                 </span>
-                <span className="wb-scene-current-switch">更换</span>
+                <span className="wb-scene-current-switch">全部场景</span>
             </button>
             {error ? (
                 <div className="wb-inline-error" role="alert">
@@ -345,7 +336,6 @@ export function ReferenceSection({
 }
 
 export function PromptSection({
-    kind,
     tool,
     preset,
     prompt,
@@ -356,7 +346,6 @@ export function PromptSection({
     onTogglePhrase,
     onClear,
 }: {
-    kind: WorkbenchKind;
     tool: WorkbenchTool | null;
     preset: WorkbenchPromptPreset | null;
     prompt: string;
@@ -369,10 +358,12 @@ export function PromptSection({
 }) {
     const [group, setGroup] = useState(inspirations[0]?.key || "");
     const activeGroup = inspirations.find((item) => item.key === group) || inspirations[0];
+    // 灵感词默认收起，把高度让给描述框；需要时从描述框右下角展开。
+    const [inspireOpen, setInspireOpen] = useState(false);
     return (
         <ComposerSection
             title="画面描述"
-            hint={kind === "image" ? "写清商品、场景、光线和需要保留的细节" : "写清主体动作、运镜、节奏和结尾画面"}
+            hint="输入 @ 引用素材 · ⌘ / Ctrl + Enter 生成"
             aside={
                 prompt ? (
                     <Button size="small" type="text" className="wb-text-action" onClick={onClear}>
@@ -397,10 +388,15 @@ export function PromptSection({
                     <span className={cn(prompt.length > maxChars * 0.9 && "is-warning")}>
                         {prompt.length.toLocaleString("zh-CN")} / {maxChars.toLocaleString("zh-CN")}
                     </span>
-                    <span>输入 @ 引用素材 · ⌘ / Ctrl + Enter 生成</span>
+                    {activeGroup ? (
+                        <button type="button" className="wb-inspire-toggle" aria-expanded={inspireOpen} onClick={() => setInspireOpen((open) => !open)}>
+                            灵感词
+                            <ChevronDown />
+                        </button>
+                    ) : null}
                 </div>
             </div>
-            {activeGroup ? (
+            {activeGroup && inspireOpen ? (
                 <div className="wb-inspire">
                     <div className="wb-inspire-tabs" role="tablist" aria-label="灵感词分类">
                         {inspirations.map((item) => (

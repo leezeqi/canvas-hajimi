@@ -48,7 +48,8 @@
 }
 .wb-shell {
     display: grid;
-    grid-template-columns: minmax(360px, 400px) minmax(0, 1fr);
+    /* 创作面板随视口加宽：长提示词需要足够的行宽才好读。 */
+    grid-template-columns: clamp(440px, 32vw, 560px) minmax(0, 1fr);
     gap: var(--space-4);
     width: 100%;
     height: 100%;
@@ -768,8 +769,9 @@
     background: var(--wb-panel);
     box-shadow: inset 0 0 0 1px var(--wb-line-strong);
 }
+/* 描述框是面板的主角：高度跟随视口，矮屏不低于 200px。 */
 .wb-prompt-editor {
-    height: 132px;
+    height: clamp(200px, 34vh, 400px);
 }
 .wb-prompt .wb-prompt-input {
     display: block;
@@ -797,10 +799,34 @@
     font-size: var(--fs-label);
     font-variant-numeric: tabular-nums;
 }
-.wb-prompt-meta > span:last-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.wb-inspire-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: 24px;
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--wb-ink-2);
+    font-size: var(--fs-caption);
+    cursor: pointer;
+    transition:
+        background-color var(--wb-motion),
+        color var(--wb-motion);
+}
+.wb-inspire-toggle:hover,
+.wb-inspire-toggle[aria-expanded="true"] {
+    background: var(--wb-hover);
+    color: var(--wb-ink);
+}
+.wb-inspire-toggle svg {
+    width: 12px;
+    height: 12px;
+    transition: rotate var(--wb-motion);
+}
+.wb-inspire-toggle[aria-expanded="true"] svg {
+    rotate: 180deg;
 }
 .wb-prompt-meta .is-warning {
     color: var(--status-warning);
@@ -1985,7 +2011,7 @@
 /* ---------- 响应式 ---------- */
 @media (max-width: 1279px) {
     .wb-shell {
-        grid-template-columns: minmax(340px, 360px) minmax(0, 1fr);
+        grid-template-columns: clamp(380px, 36vw, 440px) minmax(0, 1fr);
         gap: var(--space-3);
     }
     .wb-gallery-search {

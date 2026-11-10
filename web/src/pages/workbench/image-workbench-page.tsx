@@ -1511,7 +1511,6 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                             onClear={clearReferences}
                         />
                         <PromptSection
-                            kind={kind}
                             tool={tool}
                             preset={preset}
                             prompt={prompt}
